@@ -37,6 +37,7 @@ test('downloadState — save + load 往返', async () => {
     manifest: [{ name: 'config.yaml', size: 2860, sha256: 'abc123', status: 'missing' }],
     dedup: false,
     pastedRepos: [], pastedFiles: [], removedCmds: [], removedLinks: [], sourceChoices: {},
+    collapsedRepos: [],
   }
   saveDownloadState('test-engine', URL_A, state)
   const loaded = loadDownloadState('test-engine', URL_A)
@@ -56,6 +57,7 @@ test('downloadState — 手填的仓库、直链与移除记录跟着会话往�
     removedCmds: ['hf|Org/B|'],
     removedLinks: ['hf|Org/C'],
     sourceChoices: { 'snapshot|1': 'hf' },
+    collapsedRepos: ['repo:hf|Org/A|'],
   }
   saveDownloadState('test-engine', URL_A, state)
   assert.deepStrictEqual(loadDownloadState('test-engine', URL_A), state)
@@ -73,7 +75,7 @@ test('downloadState — 换 URL（同 id）⇒ 下载清单还在（切引擎不
   //   若按 id+url 找键，切回来就读不到这台引擎列好的清单。
   assert.deepStrictEqual(loadDownloadState('alpha', URL_B),
     { manifest: [{ name: 'a.bin' }], dedup: true, pastedRepos: [], pastedFiles: [],
-      removedCmds: [], removedLinks: [], sourceChoices: {} },
+      removedCmds: [], removedLinks: [], sourceChoices: {}, collapsedRepos: [] },
     '⛔ 换了 URL 就读不到这台引擎的下载清单')
 })
 

@@ -84,7 +84,7 @@ export function attachDownloadProgress (id, onSnapshot, onFinish) {
  */
 export async function downloadOneFile (opts) {
   const { id, root, file, onProgress, onDone } = opts
-  // 仓库与来源以文件自己带的为准：「下载全部」一批里可能混着几个仓库、两个来源，
+  // 仓库与来源以文件自己带的为准：一批批量下载里可能混着几个仓库、两个来源，
   //   只用 opts 上的一份会把它们全发到同一个仓库去。
   const repo = file.repo || opts.repo || ''
   const tool = file.tool || opts.tool || ''
@@ -114,7 +114,8 @@ export async function downloadOneFile (opts) {
         root: root || '',
         repo,
         subdir: file.subdir || '',
-        file: { name: file.name, size: file.size, sha256: file.sha256, tool },
+        overwrite: file.overwrite === true,
+        file: { name: file.name, size: file.size, sha256: file.remote_sha256 || null, tool },
       }
     const resp = await fetch(endpoint, {
       method: 'POST',

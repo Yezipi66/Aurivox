@@ -23,7 +23,10 @@ const { moduleToFiles } = require('./readmeEntry')
 
 // 文本输入的候选名。text 排在最前，它是平台词；其余是常见别名。
 //   分隔符两种都认：上游既有 target_text 也有 target-text。
-const TEXT_RE = /^(text|input[-_]?text|gen[-_]?text|target[-_]?text|prompt)$/i
+// 合成正文的参数名。tts_text / synth_text 这类前缀写法很常见
+//   （inference_zero_shot(tts_text, ...) 就是），漏掉它会把整个推理方法判成
+//   「不收文本」而过滤掉，候选里只剩内部实现类的方法。
+const TEXT_RE = /^(text|input[-_]?text|gen[-_]?text|target[-_]?text|tts[-_]?text|synth(?:esize)?[-_]?text|prompt)$/i
 // 参考音频：以 ref/reference/prompt 打头并落在音频类名词上，或直接是 voice/spk/speaker。
 const REF_RE = /(ref|reference|prompt|speaker|spk)[-_]?(audio|wav|wave|speech|voice|flac|mp3)/i
 const REF_EXACT_RE = /^(voice|spk|speaker|ref_audio|ref_wav|reference_audio)$/i

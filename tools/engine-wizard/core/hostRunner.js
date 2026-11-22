@@ -144,7 +144,13 @@ async function withTempHost (opts = {}) {
   } catch (e) {
     try { if (specFile) fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) }
     catch { /* 清不掉就算了 */ }
-    return { ok: false, stage: 'profile', error: `解析名片失败：${e.message}` }
+    // 错误消息成对回传：这一句会一路带到界面，而界面可能正显示英文。
+    //   只给中文的话，英文界面里会嵌一段中文（读的人分不清那是原文还是缺陷）。
+    return {
+      ok: false, stage: 'profile',
+      error: `解析名片失败：${e.message}`,
+      errorEn: `Could not read the manifest: ${e.messageEn || e.message}`,
+    }
   }
 
   let port
@@ -154,23 +160,53 @@ async function withTempHost (opts = {}) {
   }
   const base = `http://127.0.0.1:${port}`
 
-  // 起宿主。环境剥 PYTHONPATH / VIRTUAL_ENV：沙箱 shim 会劫持 rmtree，
-  //   而 VIRTUAL_ENV 指着别的 venv 会与引擎自己的解释器打架（同 envInstall 的口径）。
+  // 起宿主。环境与平台常驻那条路同一份（engineEnv）：剥 PYTHONPATH / VIRTUAL_ENV
+  //   （沙箱 shim 会劫持 rmtree，而 VIRTUAL_ENV 指着别的 venv 会与引擎自己的解释器打架），
+  //   并把运行期缓存目录指好。ffmpeg 由 host.py 自己摆，这里不管。
+  //   不共用的话，第 5 步验不过而平台跑得起来（或反过来），差别只在环境变量上。
   let child
   try {
     child = spawnFn(python,
       [HOST_PY, '--profile-json', specFile, '--port', String(port)],
-      { cwd: root, env: childEnvFor(root), windowsHide: true })
+      {
+        cwd: root,
+        env: {
+          ...platform('lib/engines/engineEnv.js').engineChildEnv({
+            base: childEnvFor(root),
+            // 与平台常驻那条路同一份缓存位置：这台引擎自己的目录下。
+            id,
+          }),
+          // 让宿主把引擎子进程的输出边跑边转发到自己的 stderr。
+          //   校验要的是「现在在做什么」：等几十秒只拿到一句结论，看不出卡在哪。
+          AURIVOX_STREAM_ENGINE_OUTPUT: '1',
+        },
+        windowsHide: true,
+      })
   } catch (e) {
     try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) } catch { /* */ }
     return { ok: false, stage: 'host-spawn', error: `起不动宿主：${e.message}` }
   }
 
-  // stderr 尾部收着：成功用不上，失败时它是唯一说清为什么的。
+  // 两路分开收：stdout 是引擎自己说的话（模型路径、进度），stderr 是宿主的异常与告警。
+  //   以前合成一摞，界面只能笼统叫「stderr」，读的人分不清哪句是失败原因、哪句是正常输出。
+  //   尾部各留 4000 字：成功用不上，失败时它们是一起说清为什么的唯一材料。
+  let stdoutTail = ''
   let stderrTail = ''
-  const feed = (chunk) => { stderrTail = (stderrTail + String(chunk)).slice(-4000) }
-  if (child.stdout) child.stdout.on('data', feed)
-  if (child.stderr) child.stderr.on('data', feed)
+  const keep = (cur, chunk) => (cur + String(chunk)).slice(-4000)
+  // onLine：调用方要实时看输出时传进来的回调（第 5 步的 A 级校验走它）。
+  //   不传时行为与以前一致：只累积，不推。
+  const onLine = typeof opts.onLine === 'function' ? opts.onLine : null
+  if (child.stdout) child.stdout.on('data', (c) => {
+    stdoutTail = keep(stdoutTail, c)
+    if (onLine) onLine(String(c), false)
+  })
+  if (child.stderr) child.stderr.on('data', (c) => {
+    stderrTail = keep(stderrTail, c)
+    if (onLine) onLine(String(c), true)
+  })
+  // 诊断只看 stderr：traceback 与「No module named」都在这一路。
+  //   stdout 里也可能出现同名文字（引擎自己打印的提示），混进去会把根因指错。
+  const outputs = () => ({ stdout: stdoutTail, stderr: stderrTail })
   let exited = null
   child.on('exit', (code, signal) => { exited = { code, signal } })
 
@@ -190,24 +226,24 @@ async function withTempHost (opts = {}) {
       return { ok: false, stage: 'host-exit', base_url: base,
         error: `宿主进程提前退出（code=${exited.code} signal=${exited.signal}）：`
           + '这是起不来，不是「验不过」',
-        stderr: stderrTail }
+        ...outputs() }
     }
     if (klass.state === 'failed') {
       return { ok: false, stage: 'health', base_url: base,
-        error: klass.error, stderr: stderrTail }
+        error: klass.error, ...outputs() }
     }
     if (klass.state !== 'ready') {
       return { ok: false, stage: 'health', base_url: base,
         error: `宿主在 ${Math.round(readyTimeoutMs / 1000)} 秒内没有就绪：`
           + '可能是模型加载太慢，或者 /health 一直连不上',
-        stderr: stderrTail }
+        ...outputs() }
     }
 
     const result = await run(base)
     return { ok: true, base_url: base, result }
   } catch (e) {
     return { ok: false, stage: 'run', base_url: base,
-      error: String((e && e.message) || e), stderr: stderrTail }
+      error: String((e && e.message) || e), ...outputs() }
   } finally {
     // 成败都杀：宿主只服务本次试运行，留着不会有第二次连接。
     try { killFn(child) } catch { /* 已经退了 */ }

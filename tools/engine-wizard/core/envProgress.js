@@ -33,6 +33,20 @@ function sitePackagesDir (venvDir) {
   return null
 }
 
+/** 包名的比较键：PEP 503 归一（- _ . 视为等价，小写）。 */
+function pkgKey (name) {
+  return String(name || '').toLowerCase().replace(/[-_.]+/g, '-')
+}
+
+/** 从 `<name>-<version>.dist-info` 的 base 里切出名字与版本。 */
+function splitDistInfo (base) {
+  const i = String(base).lastIndexOf('-')
+  if (i > 0 && /^\d/.test(base.slice(i + 1))) {
+    return { name: base.slice(0, i), version: base.slice(i + 1) }
+  }
+  return null
+}
+
 /**
  * 引擎 venv 里某个包当前装的是哪个版本。
  *
@@ -40,6 +54,11 @@ function sitePackagesDir (venvDir) {
  * 不 spawn python 去问，那要起进程，慢且可能失败。
  * dist-info 目录名带后缀（`torch-2.6.0+xpu`），后缀是后端标记，
  *   要与命令里那个 index 对得上才算装的是这一版。
+ *
+ * 名字按 PEP 503 归一后精确比对，不用前缀：
+ *   上游清单写 `typing_extensions`、盘上是 `typing_extensions-4.12.2.dist-info`，
+ *   而归一后的查询键是 `typing-extensions` ⇒ 前缀匹配会查不到。
+ *   归一比对同时保证 `torch` 不会匹配到 `torchgen`。
  *
  * @param {string} venvDir 引擎 venv 目录
  * @param {string} pkgName 包名（torch 这种）
@@ -50,11 +69,14 @@ function installedPackageVersion (venvDir, pkgName) {
   if (!sp) return null
   let entries = []
   try { entries = fs.readdirSync(sp) } catch (e) { return null }
-  const prefix = pkgName.toLowerCase() + '-'
+  const want = pkgKey(pkgName)
+  if (!want) return null
   for (const it of entries) {
-    if (!it.toLowerCase().startsWith(prefix)) continue
-    if (!it.toLowerCase().endsWith('.dist-info')) continue
-    return it.slice(prefix.length, -'.dist-info'.length)
+    if (!String(it).toLowerCase().endsWith('.dist-info')) continue
+    const parts = splitDistInfo(String(it).slice(0, -'.dist-info'.length))
+    if (!parts) continue
+    if (pkgKey(parts.name) !== want) continue
+    return parts.version
   }
   return null
 }
@@ -154,17 +176,62 @@ function sitePackagesNonEmpty (venvDir) {
 }
 
 /**
+ * 从一条清单声明里取包名。
+ *
+ * 清单解析出的条目有两种形态：字符串（`soundfile==0.12.1`）与对象
+ * （`{name, version, ...}`）。两种都只取名字，版本不参与存在性判断。
+ * 与 envInstall.js 的 `specName` 同一口径：按 PEP 503 的名字边界切。
+ */
+function specNameOf (spec) {
+  const raw = spec && typeof spec === 'object' ? (spec.name || spec.package || '') : spec
+  return String(raw || '').split(/[<>=!~;\s\[]/)[0].trim().toLowerCase()
+}
+
+/**
+ * 这条命令显式跳过了哪些包。
+ *
+ * 两种写法都要认：
+ *   `--excludes <文件>`（requirements 路线，文件里一行一个包名）
+ *   `--no-install-package <包>`（uv sync 路线）
+ * 被跳过的包不在盘上是正常的（torch 由后面那步单独装），不算「没装完」。
+ */
+function excludedNames (step, root, id) {
+  const out = new Set()
+  const argv = (step && step.argv) || []
+  for (let i = 0; i < argv.length; i++) {
+    const a = String(argv[i])
+    if (a === '--no-install-package' && argv[i + 1]) {
+      out.add(pkgKey(argv[i + 1]))
+      continue
+    }
+    if (a === '--excludes' && argv[i + 1]) {
+      const rel = String(argv[i + 1])
+      const base = (step && step.cwd) || path.join('engines', String(id || ''))
+      let text = ''
+      try { text = fs.readFileSync(path.join(root, base, rel), 'utf8') } catch (e) { text = '' }
+      for (const line of text.split(/\r?\n/)) {
+        const n = line.trim()
+        if (n) out.add(pkgKey(n))
+      }
+    }
+  }
+  return out
+}
+
+/**
  * 某一步的产物是否还在。
  *
- * 三层判据（缺一层就会静默跳过）：
+ * 判据（缺一层就会静默跳过）：
  *   ① 建环境步：引擎 venv 的 python 能 spawn（`canUseEngineVenv`）。
  *   ② 装包步：目标 site-packages 非空。
- *   ③ 版本核对：这步命令里声明了 `<包>==<版本>` 时，
+ *   ③ 清单核对：这步带了 `specNames`（上游依赖清单解析出的干净包名）时，
+ *      清单里的每个包都必须在盘上，减去命令显式跳过的那些。
+ *      只查在不在，不查版本：版本由 uv 自己对齐（锁文件、后端 index 都会改版本，
+ *      torch 装出来还带 +xpu 后缀），平台先判版本会把正常环境误杀成「没装完」。
+ *      这一层不能省：`-r requirements.txt` 形式的包名不在 argv 上，
+ *      只看 ② 的话，装了 torch 就算整步完成，清单里其余的包从没装过也报完成。
+ *   ④ 版本核对：这步命令里声明了 `<包>==<版本>`、且没有 ③ 的清单时，
  *      引擎 venv 里那个包当前装的就是那一版（后端后缀也要对）。
- *      这一层不能省：产物在、但已经不是命令要装的那一版时
- *      （例如手工把 torch 降回上游钉的版本），命令文本一字未变 ⇒
- *      只看命令文本会判「已完成」而跳过 ⇒ 装出来的环境是错的，
- *      而界面报「完成」。
  */
 function stepArtifactExists (step, root, id) {
   const venvDir = engineVenvDirAbs(root, id)
@@ -178,11 +245,23 @@ function stepArtifactExists (step, root, id) {
   }
   if (!sitePackagesNonEmpty(venvDir)) return false
 
+  // 清单核对：上游声明了的包都得在盘上（跳过的那几个除外）。
+  const names = Array.isArray(step.specNames) ? step.specNames : []
+  if (names.length) {
+    const skip = excludedNames(step, root, id)
+    for (const raw of names) {
+      const n = pkgKey(raw)
+      if (!n || skip.has(n)) continue
+      if (!installedPackageVersion(venvDir, n)) return false
+    }
+    return true
+  }
+
   // 版本核对：命令里声明了逐个版本时，逐个对。
-  const specs = parseDeclaredSpecs(argv)
-  if (!specs.length) return true
+  const declared = parseDeclaredSpecs(argv)
+  if (!declared.length) return true
   const indexName = parseIndexName(argv)
-  for (const spec of specs) {
+  for (const spec of declared) {
     const installed = installedPackageVersion(venvDir, spec.name)
     if (!versionMatches(installed, spec.version, indexName)) return false
   }
@@ -195,6 +274,7 @@ module.exports = {
   installedPackageVersion,
   parseDeclaredSpecs,
   parseIndexName,
+  specNameOf,
   versionMatches,
   stepArtifactExists,
 }

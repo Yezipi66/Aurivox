@@ -1,4 +1,480 @@
 {
+  "contract_version": 3,
+  "registration": {
+    "id": "gpt-sovits",
+    "label": "GPT-SoVITS",
+    "upstream": {
+      "url": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "commit": null,
+      "commit_unknown_reason": "上游 .git 在源码搬进本仓库时即被删除，当时没有记下 sha，事后无法恢复（C10 明示的那种丢失）。本仓库里的 gsv_code/ 还带着本地改动（见 infer/LOCAL-CHANGES.md），因此它也不等于上游任何一个 commit 的原样副本。",
+      "license": "MIT"
+    },
+    "local_changes": "infer/LOCAL-CHANGES.md",
+    "models": {
+      "checkpoints_env": "GSV_PRETRAINED_DIR",
+      "required": [
+        "chinese-hubert-base",
+        "chinese-roberta-wwm-ext-large"
+      ],
+      "hint": "GPT-SoVITS 的预训练权重不进 git。上面那个目录下应有 chinese-hubert-base / chinese-roberta-wwm-ext-large 两个特征提取器，以及 v2 / v2Pro / v2ProPlus 里至少一套 s1/s2 权重（具体哪一套由平台按可用性自己挑）。",
+      "source": {
+        "url": "https://huggingface.co/lj1995/GPT-SoVITS",
+        "license_gate": false
+      }
+    },
+    "weights": [
+      {
+        "name": "gpt",
+        "label": "GPT",
+        "param": "gpt_model",
+        "applies_at": "call"
+      },
+      {
+        "name": "sovits",
+        "label": "SoVITS",
+        "param": "sovits_model",
+        "applies_at": "call"
+      }
+    ],
+    "default_base_url": "http://127.0.0.1:9880",
+    "base_url_env": "GPT_SOVITS_BASE_URL",
+    "max_chars": 45,
+    "max_chars_source": "estimated",
+    "timeout_ms": 300000,
+    "timeout_ms_source": "estimated",
+    "capabilities": {
+      "requires_reference_audio": true,
+      "reference_clip_seconds": [
+        3,
+        10
+      ],
+      "streaming": true,
+      "output_sample_rate": 32000,
+      "supports_finetune": true
+    },
+    "maps": {
+      "text": "text",
+      "text_lang": "text_lang",
+      "reference_audio": "ref_audio_path",
+      "reference_text": "prompt_text",
+      "reference_lang": "prompt_lang",
+      "aux_reference_audio": "aux_ref_audio_paths",
+      "speed": "speed_factor",
+      "seed": "seed",
+      "media_type": "media_type",
+      "streaming": "streaming_mode"
+    },
+    "environment": {
+      "python": "engines/gpt-sovits/.venv",
+      "entry": "../../lib/inference/infer_server.py",
+      "args": [
+        "-a",
+        "{host}",
+        "-p",
+        "{port}",
+        "-c",
+        "{root}/lib/inference/tts_infer.yaml"
+      ],
+      "checkpoints": "models/tts/gpt-sovits",
+      "ready_endpoint": "/",
+      "ready_timeout_ms": 180000,
+      "ready_timeout_ms_source": "estimated",
+      "preload": false,
+      "verify": {
+        "sys_path": [
+          "engines/gpt-sovits/infer",
+          "engines/gpt-sovits"
+        ],
+        "imports": [
+          {
+            "module": "TTS",
+            "class": "TTS",
+            "methods": [
+              "run",
+              "set_ref_audio",
+              "init_t2s_weights",
+              "init_vits_weights"
+            ]
+          },
+          {
+            "module": "TTS",
+            "class": "TTS_Config"
+          }
+        ]
+      },
+      "cwd": "."
+    }
+  },
+  "invocation": {
+    "kind": null,
+    "param_keys": [
+      "format",
+      "split",
+      "max_chars",
+      "concat",
+      "silence_ms",
+      "reference_text",
+      "aux_ref_audio_paths",
+      "temperature",
+      "top_k",
+      "top_p",
+      "repetition_penalty",
+      "text_split_method",
+      "speed_factor",
+      "gpt_model",
+      "sovits_model",
+      "text_lang",
+      "prompt_lang",
+      "batch_size",
+      "batch_threshold",
+      "split_bucket",
+      "fragment_interval",
+      "parallel_infer",
+      "sample_steps",
+      "if_sr",
+      "super_sampling",
+      "media_type",
+      "streaming_mode",
+      "overlap_length",
+      "min_chunk_length",
+      "pron_overrides",
+      "auto_base_lang",
+      "lang_overrides",
+      "engine_batch",
+      "voice_label"
+    ],
+    "payload_keys": [
+      "text",
+      "text_lang",
+      "ref_audio_path",
+      "aux_ref_audio_paths",
+      "prompt_text",
+      "prompt_lang",
+      "top_k",
+      "top_p",
+      "temperature",
+      "repetition_penalty",
+      "seed",
+      "speed_factor",
+      "text_split_method",
+      "batch_size",
+      "batch_threshold",
+      "split_bucket",
+      "fragment_interval",
+      "parallel_infer",
+      "sample_steps",
+      "if_sr",
+      "super_sampling",
+      "media_type",
+      "streaming_mode",
+      "overlap_length",
+      "min_chunk_length",
+      "pron_overrides",
+      "auto_base_lang",
+      "lang_overrides"
+    ],
+    "params": {
+      "schema": {
+        "temperature": {
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "tier": "common",
+          "label": {
+            "en": "Temperature",
+            "zh": "Temperature"
+          },
+          "help": {
+            "en": "Randomness of generation.",
+            "zh": "生成随机性。"
+          }
+        },
+        "top_k": {
+          "type": "integer",
+          "min": 1,
+          "max": 100,
+          "step": 1,
+          "tier": "common",
+          "label": {
+            "en": "Top K",
+            "zh": "Top K"
+          },
+          "help": {
+            "en": "Sampling candidate count.",
+            "zh": "采样候选数量。"
+          }
+        },
+        "top_p": {
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "tier": "common",
+          "label": {
+            "en": "Top P",
+            "zh": "Top P"
+          },
+          "help": {
+            "en": "Nucleus sampling threshold.",
+            "zh": "核采样阈值。"
+          }
+        },
+        "repetition_penalty": {
+          "type": "number",
+          "min": 0.5,
+          "max": 2,
+          "step": 0.05,
+          "tier": "common",
+          "label": {
+            "en": "Repetition Penalty",
+            "zh": "Repetition Penalty"
+          },
+          "help": {
+            "en": "Penalty against repeated output.",
+            "zh": "抑制重复输出的惩罚系数。"
+          }
+        },
+        "text_split_method": {
+          "type": "enum",
+          "tier": "common",
+          "label": {
+            "en": "Split Method",
+            "zh": "Split Method"
+          },
+          "help": {
+            "en": "How long text is split before synthesis.",
+            "zh": "合成前的长文本切分方式。"
+          },
+          "choices": [
+            {
+              "value": "cut0",
+              "label": {
+                "en": "cut0 (no split)",
+                "zh": "cut0 (no split)"
+              }
+            },
+            {
+              "value": "cut1",
+              "label": {
+                "en": "cut1 (punctuation)",
+                "zh": "cut1 (punctuation)"
+              }
+            },
+            {
+              "value": "cut2",
+              "label": {
+                "en": "cut2 (sentence)",
+                "zh": "cut2 (sentence)"
+              }
+            },
+            {
+              "value": "cut3",
+              "label": {
+                "en": "cut3 (paragraph)",
+                "zh": "cut3 (paragraph)"
+              }
+            },
+            {
+              "value": "cut4",
+              "label": {
+                "en": "cut4 (length)",
+                "zh": "cut4 (length)"
+              }
+            },
+            {
+              "value": "cut5",
+              "label": {
+                "en": "cut5 (default)",
+                "zh": "cut5 (default)"
+              }
+            }
+          ]
+        },
+        "speed_factor": {
+          "type": "number",
+          "min": 0.5,
+          "max": 2,
+          "step": 0.1,
+          "tier": "common",
+          "label": {
+            "en": "Speed Factor",
+            "zh": "Speed Factor"
+          },
+          "help": {
+            "en": "Playback speed multiplier.",
+            "zh": "语速倍率。"
+          }
+        },
+        "batch_size": {
+          "type": "integer",
+          "min": 1,
+          "max": 8,
+          "step": 1,
+          "tier": "advanced",
+          "label": {
+            "en": "Batch Size",
+            "zh": "Batch Size"
+          },
+          "help": {
+            "en": "Segments synthesised per batch.",
+            "zh": "每批合成的分段数量。"
+          }
+        },
+        "batch_threshold": {
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "tier": "advanced",
+          "label": {
+            "en": "Batch Threshold",
+            "zh": "Batch Threshold"
+          },
+          "help": {
+            "en": "Length-similarity threshold for batching.",
+            "zh": "分批时的长度相似度阈值。"
+          }
+        },
+        "split_bucket": {
+          "type": "boolean",
+          "tier": "advanced",
+          "label": {
+            "en": "Split Bucket",
+            "zh": "Split Bucket"
+          },
+          "help": {
+            "en": "Group segments of similar length before synthesis.",
+            "zh": "合成前将长度相近的分段分组处理。"
+          }
+        },
+        "fragment_interval": {
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "tier": "advanced",
+          "label": {
+            "en": "Fragment Interval (s)",
+            "zh": "Fragment Interval (s)"
+          },
+          "help": {
+            "en": "Silence in seconds inserted between segments.",
+            "zh": "分段之间插入的静音秒数。"
+          }
+        },
+        "parallel_infer": {
+          "type": "boolean",
+          "tier": "advanced",
+          "label": {
+            "en": "Parallel Infer",
+            "zh": "Parallel Infer"
+          },
+          "help": {
+            "en": "Infer segments in parallel.",
+            "zh": "并行推理各分段。"
+          }
+        },
+        "sample_steps": {
+          "default": 32,
+          "type": "integer",
+          "min": 4,
+          "max": 64,
+          "step": 4,
+          "tier": "advanced",
+          "label": {
+            "en": "Sample Steps (v3)",
+            "zh": "Sample Steps (v3)"
+          },
+          "help": {
+            "en": "Sampling steps for the vocoder. v3/v4 models only.",
+            "zh": "声码器采样步数，仅 v3/v4 模型有效。"
+          }
+        },
+        "if_sr": {
+          "default": false,
+          "type": "boolean",
+          "tier": "advanced",
+          "label": {
+            "en": "Super Sampling (v3)",
+            "zh": "Super Sampling (v3)"
+          },
+          "help": {
+            "en": "Run super-resolution on the result. v3/v4 models only.",
+            "zh": "对结果执行超分辨率处理，仅 v3/v4 模型有效。"
+          }
+        },
+        "streaming_mode": {
+          "type": "boolean",
+          "tier": "advanced",
+          "label": {
+            "en": "Streaming Mode",
+            "zh": "Streaming Mode"
+          },
+          "help": {
+            "en": "Return audio chunks while synthesis is still running.",
+            "zh": "边合成边返回音频分片。"
+          }
+        },
+        "overlap_length": {
+          "default": 2,
+          "type": "integer",
+          "min": 0,
+          "max": 10,
+          "step": 1,
+          "tier": "advanced",
+          "label": {
+            "en": "Overlap Length",
+            "zh": "Overlap Length"
+          },
+          "help": {
+            "en": "Overlap between streamed chunks, in frames.",
+            "zh": "流式分片之间的重叠帧数。"
+          }
+        },
+        "min_chunk_length": {
+          "default": 16,
+          "type": "integer",
+          "min": 4,
+          "max": 64,
+          "step": 4,
+          "tier": "advanced",
+          "label": {
+            "en": "Min Chunk Length",
+            "zh": "Min Chunk Length"
+          },
+          "help": {
+            "en": "Smallest chunk the engine will stream out.",
+            "zh": "流式输出的最小分片长度。"
+          }
+        }
+      }
+    },
+    "defaults": {
+      "top_k": 15,
+      "top_p": 1,
+      "temperature": 1,
+      "text_split_method": "cut5",
+      "batch_size": 4,
+      "batch_threshold": 0.75,
+      "split_bucket": true,
+      "speed_factor": 1,
+      "fragment_interval": 0.3,
+      "media_type": "wav",
+      "streaming_mode": false,
+      "parallel_infer": true,
+      "repetition_penalty": 1.35,
+      "seed": -1
+    },
+    "defaults_env": {
+      "batch_size": {
+        "var": "AURIVOX_TTS_BATCH_SIZE",
+        "type": "int",
+        "min": 1,
+        "max": 16
+      }
+    }
+  },
   "_comment_contract": [
     "⭐ 第一张按旧引擎接入实现 写的 manifest.json（retired engine-integration specification）。",
     "下面每一个值都是从 lib/ 里搬出来的**今天的实际行为**，不是新定的规矩 ——",
@@ -11,10 +487,6 @@
     "  weights[].applies_at ← 无条件调 switchModels 这个行为本身",
     "    （2026-08-30 之前这里写的是引擎级的 hot_swap_models，已退休）"
   ],
-  "contract_version": 2,
-
-  "id": "gpt-sovits",
-  "label": "GPT-SoVITS",
   "_comment_upstream": [
     "C10：上游源码不进 git，安装时按这里钉的 commit 拉。",
     "⛔ commit 是 null，且这是一笔还不上的账，不是待办：这台引擎的上游代码",
@@ -24,14 +496,6 @@
     "留空至少诚实地表示「这一版装不回来」。",
     "license 出自 THIRD_PARTY_LICENSES/runtime/INDEX.json 的 GPT-SoVITS 条目。"
   ],
-  "upstream": {
-    "url": "https://github.com/RVC-Boss/GPT-SoVITS",
-    "commit": null,
-    "commit_unknown_reason": "上游 .git 在源码搬进本仓库时即被删除，当时没有记下 sha，事后无法恢复（C10 明示的那种丢失）。本仓库里的 gsv_code/ 还带着本地改动（见 infer/LOCAL-CHANGES.md），因此它也不等于上游任何一个 commit 的原样副本。",
-    "license": "MIT"
-  },
-  "local_changes": "infer/LOCAL-CHANGES.md",
-
   "_comment_models": [
     "2026-08-29 新增，连同上面 runtime.checkpoints 那一行。",
     "",
@@ -57,19 +521,6 @@
     "  ⇒ 这里只列**没有任何回落、少了就一定起不来**的两个特征提取器，",
     "    它们不属于上面任何一张表，不构成重复。"
   ],
-  "models": {
-    "checkpoints_env": "GSV_PRETRAINED_DIR",
-    "required": [
-      "chinese-hubert-base",
-      "chinese-roberta-wwm-ext-large"
-    ],
-    "hint": "GPT-SoVITS 的预训练权重不进 git。上面那个目录下应有 chinese-hubert-base / chinese-roberta-wwm-ext-large 两个特征提取器，以及 v2 / v2Pro / v2ProPlus 里至少一套 s1/s2 权重（具体哪一套由平台按可用性自己挑）。",
-    "source": {
-      "url": "https://huggingface.co/lj1995/GPT-SoVITS",
-      "license_gate": false
-    }
-  },
-
   "_comment_weights": [
     "⭐⭐ 这台引擎推理时要用户选几个权重、各叫什么。整张名片里，关于",
     "「模型」你只需要写这一样。",
@@ -107,30 +558,12 @@
     "  写了就必须和 param 对得上，否则当场装不上。",
     "⛔ 绝不许为了让界面好看而填一个引擎根本不读的键。"
   ],
-  "weights": [
-    { "name": "gpt", "label": "GPT", "param": "gpt_model", "applies_at": "call" },
-    { "name": "sovits", "label": "SoVITS", "param": "sovits_model", "applies_at": "call" }
-  ],
-
   "_comment_param_keys": [
     "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
     "服务端本来就会忽略它，静默放行会让一个拼错的参数名看起来像生效了。",
     "这张表此前硬编码在 lib/flowgraph/adapter.js 里，那意味着接第二个引擎",
     "要改 adapter；搬到这里之后 adapter 只认 manifest，加引擎不碰 lib/。"
   ],
-  "param_keys": [
-    "format", "split", "max_chars", "concat", "silence_ms",
-    "reference_text", "aux_ref_audio_paths",
-    "temperature", "top_k", "top_p", "repetition_penalty",
-    "text_split_method", "speed_factor",
-    "gpt_model", "sovits_model", "text_lang", "prompt_lang",
-    "batch_size", "batch_threshold", "split_bucket", "fragment_interval",
-    "parallel_infer", "sample_steps", "if_sr", "super_sampling",
-    "media_type", "streaming_mode", "overlap_length", "min_chunk_length",
-    "pron_overrides", "auto_base_lang", "lang_overrides", "engine_batch",
-    "voice_label"
-  ],
-
   "_comment_maps": [
     "⭐ 第 1c 步新增：平台的词 → 这台引擎的键名。",
     "左边那一列（text / text_lang / reference_audio / ...）是**平台自己的词**，",
@@ -146,19 +579,6 @@
     "没写的词 = 这台引擎没这个概念，平台就不发。GPT-SoVITS 这几个词都有，",
     "所以这里是满的；IndexTTS2 的 manifest.json 里就只有四行。"
   ],
-  "maps": {
-    "text": "text",
-    "text_lang": "text_lang",
-    "reference_audio": "ref_audio_path",
-    "reference_text": "prompt_text",
-    "reference_lang": "prompt_lang",
-    "aux_reference_audio": "aux_ref_audio_paths",
-    "speed": "speed_factor",
-    "seed": "seed",
-    "media_type": "media_type",
-    "streaming": "streaming_mode"
-  },
-
   "_comment_payload_keys": [
     "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
     "这张表逐字等于搬家前 server.js:709-722 的 TTS_PASS_THROUGH_KEYS ——",
@@ -171,21 +591,6 @@
     "               它们从来不发给引擎。",
     "  payload_keys 真正会出现在 /tts 请求体里的键。"
   ],
-  "payload_keys": [
-    "text", "text_lang", "ref_audio_path", "aux_ref_audio_paths",
-    "prompt_text", "prompt_lang",
-    "top_k", "top_p", "temperature", "repetition_penalty", "seed",
-    "speed_factor", "text_split_method",
-    "batch_size", "batch_threshold", "split_bucket",
-    "fragment_interval", "parallel_infer",
-    "sample_steps", "if_sr", "super_sampling",
-    "media_type", "streaming_mode",
-    "overlap_length", "min_chunk_length",
-    "pron_overrides",
-    "auto_base_lang",
-    "lang_overrides"
-  ],
-
   "_comment_defaults": [
     "⭐ 这台引擎的默认值，只填「谁都没填过」的键。",
     "这 14 行逐条等于搬家前 server.js:789-802 那一串",
@@ -204,23 +609,6 @@
     "defaults，结果 OpenAI 兼容口和 Flow 这些**从来没发过它们**的路径",
     "凭空多了 4 个键 —— 那是行为变更，不是重构。"
   ],
-  "defaults": {
-    "top_k": 15,
-    "top_p": 1.0,
-    "temperature": 1.0,
-    "text_split_method": "cut5",
-    "batch_size": 4,
-    "batch_threshold": 0.75,
-    "split_bucket": true,
-    "speed_factor": 1.0,
-    "fragment_interval": 0.3,
-    "media_type": "wav",
-    "streaming_mode": false,
-    "parallel_infer": true,
-    "repetition_penalty": 1.35,
-    "seed": -1
-  },
-
   "_comment_params_schema": [
     "⭐ 契约 §5.4「每个参数长什么样 —— 界面按这个长出面板，不再写死一套",
     "GPT-SoVITS 的」。这一节是在还 C11（§8:590 参数表只有一份）的账。",
@@ -239,104 +627,6 @@
     "（两张 manifest.json 都有），seed 也是平台词（IndexTTS2 用 maps 映射它）——",
     "它们不归任何一台引擎描述，所以不在这里。"
   ],
-  "params": {
-    "schema": {
-      "temperature": {
-        "type": "number", "min": 0, "max": 2, "step": 0.05, "tier": "common",
-        "label": { "en": "Temperature", "zh": "Temperature" },
-        "help": { "en": "Randomness of generation.", "zh": "生成随机性。" }
-      },
-      "top_k": {
-        "type": "integer", "min": 1, "max": 100, "step": 1, "tier": "common",
-        "label": { "en": "Top K", "zh": "Top K" },
-        "help": { "en": "Sampling candidate count.", "zh": "采样候选数量。" }
-      },
-      "top_p": {
-        "type": "number", "min": 0, "max": 1, "step": 0.05, "tier": "common",
-        "label": { "en": "Top P", "zh": "Top P" },
-        "help": { "en": "Nucleus sampling threshold.", "zh": "核采样阈值。" }
-      },
-      "repetition_penalty": {
-        "type": "number", "min": 0.5, "max": 2, "step": 0.05, "tier": "common",
-        "label": { "en": "Repetition Penalty", "zh": "Repetition Penalty" },
-        "help": { "en": "Penalty against repeated output.", "zh": "抑制重复输出的惩罚系数。" }
-      },
-      "text_split_method": {
-        "type": "enum", "tier": "common",
-        "label": { "en": "Split Method", "zh": "Split Method" },
-        "help": { "en": "How long text is split before synthesis.", "zh": "合成前的长文本切分方式。" },
-        "choices": [
-          { "value": "cut0", "label": { "en": "cut0 (no split)", "zh": "cut0 (no split)" } },
-          { "value": "cut1", "label": { "en": "cut1 (punctuation)", "zh": "cut1 (punctuation)" } },
-          { "value": "cut2", "label": { "en": "cut2 (sentence)", "zh": "cut2 (sentence)" } },
-          { "value": "cut3", "label": { "en": "cut3 (paragraph)", "zh": "cut3 (paragraph)" } },
-          { "value": "cut4", "label": { "en": "cut4 (length)", "zh": "cut4 (length)" } },
-          { "value": "cut5", "label": { "en": "cut5 (default)", "zh": "cut5 (default)" } }
-        ]
-      },
-      "speed_factor": {
-        "type": "number", "min": 0.5, "max": 2, "step": 0.1, "tier": "common",
-        "label": { "en": "Speed Factor", "zh": "Speed Factor" },
-        "help": { "en": "Playback speed multiplier.", "zh": "语速倍率。" }
-      },
-
-      "batch_size": {
-        "type": "integer", "min": 1, "max": 8, "step": 1, "tier": "advanced",
-        "label": { "en": "Batch Size", "zh": "Batch Size" },
-        "help": { "en": "Segments synthesised per batch.", "zh": "每批合成的分段数量。" }
-      },
-      "batch_threshold": {
-        "type": "number", "min": 0, "max": 1, "step": 0.05, "tier": "advanced",
-        "label": { "en": "Batch Threshold", "zh": "Batch Threshold" },
-        "help": { "en": "Length-similarity threshold for batching.", "zh": "分批时的长度相似度阈值。" }
-      },
-      "split_bucket": {
-        "type": "boolean", "tier": "advanced",
-        "label": { "en": "Split Bucket", "zh": "Split Bucket" },
-        "help": { "en": "Group segments of similar length before synthesis.", "zh": "合成前将长度相近的分段分组处理。" }
-      },
-      "fragment_interval": {
-        "type": "number", "min": 0, "max": 2, "step": 0.05, "tier": "advanced",
-        "label": { "en": "Fragment Interval (s)", "zh": "Fragment Interval (s)" },
-        "help": { "en": "Silence in seconds inserted between segments.", "zh": "分段之间插入的静音秒数。" }
-      },
-      "parallel_infer": {
-        "type": "boolean", "tier": "advanced",
-        "label": { "en": "Parallel Infer", "zh": "Parallel Infer" },
-        "help": { "en": "Infer segments in parallel.", "zh": "并行推理各分段。" }
-      },
-      "sample_steps": {
-        "default": 32,
-        "type": "integer", "min": 4, "max": 64, "step": 4, "tier": "advanced",
-        "label": { "en": "Sample Steps (v3)", "zh": "Sample Steps (v3)" },
-        "help": { "en": "Sampling steps for the vocoder. v3/v4 models only.", "zh": "声码器采样步数，仅 v3/v4 模型有效。" }
-      },
-      "if_sr": {
-        "default": false,
-        "type": "boolean", "tier": "advanced",
-        "label": { "en": "Super Sampling (v3)", "zh": "Super Sampling (v3)" },
-        "help": { "en": "Run super-resolution on the result. v3/v4 models only.", "zh": "对结果执行超分辨率处理，仅 v3/v4 模型有效。" }
-      },
-      "streaming_mode": {
-        "type": "boolean", "tier": "advanced",
-        "label": { "en": "Streaming Mode", "zh": "Streaming Mode" },
-        "help": { "en": "Return audio chunks while synthesis is still running.", "zh": "边合成边返回音频分片。" }
-      },
-      "overlap_length": {
-        "default": 2,
-        "type": "integer", "min": 0, "max": 10, "step": 1, "tier": "advanced",
-        "label": { "en": "Overlap Length", "zh": "Overlap Length" },
-        "help": { "en": "Overlap between streamed chunks, in frames.", "zh": "流式分片之间的重叠帧数。" }
-      },
-      "min_chunk_length": {
-        "default": 16,
-        "type": "integer", "min": 4, "max": 64, "step": 4, "tier": "advanced",
-        "label": { "en": "Min Chunk Length", "zh": "Min Chunk Length" },
-        "help": { "en": "Smallest chunk the engine will stream out.", "zh": "流式输出的最小分片长度。" }
-      }
-    }
-  },
-
   "_comment_defaults_env": [
     "⭐ manifest.json 自己声明「哪个环境变量能顶掉我的哪个默认值」，平台不认识任何",
     "具体变量名（和上面的 base_url_env 同一个套路）。",
@@ -351,21 +641,13 @@
     "⛔ 别再把这两个数字混在一起讨论：它们不是同一个问题的两种意见，",
     "是两个场景各自正确的答案。"
   ],
-  "defaults_env": {
-    "batch_size": { "var": "AURIVOX_TTS_BATCH_SIZE", "type": "int", "min": 1, "max": 16 }
-  },
-
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
-  "default_base_url": "http://127.0.0.1:9880",
-
   "_comment_base_url_env": [
     "⭐ manifest.json 自己指定「哪个环境变量能覆盖我的地址」，平台不认识任何具体变量名。",
     "这一行的存在，是为了让历史环境变量 GPT_SOVITS_BASE_URL 继续有效，",
     "同时不用把 GPT_SOVITS 这几个字写进 lib/。优先级：env > 本 manifest.json。",
     "下游引擎想要同样的能力，自己写一行就有，不用求我们改代码。"
   ],
-  "base_url_env": "GPT_SOVITS_BASE_URL",
-
   "_comment_legacy_default_removed": [
     "⭐ 2026-08-31（刀 A1）：这里过去有 \"legacy_default\": true —— 意思是",
     "『没人告诉我连哪台的时候，连我』。整个机制（本键 + lib/engines/legacyDefault.js）",
@@ -374,14 +656,10 @@
     "⛔ 别把这个键加回来：一有默认引擎，第 N+1 台引擎的作者就永远要回答",
     "『我算不算默认』，而这个问题对每台引擎的答案都不一样。"
   ],
-
   "_comment_timeout_ms": [
     "单次请求超时，按『每一段』计不是整篇。300000 = 搬家前 lib/gsv/client.js",
     "里那个模块级默认值，原样搬过来，没有调整。"
   ],
-  "timeout_ms": 300000,
-  "timeout_ms_source": "estimated",
-
   "_comment_max_chars": [
     "分段软上限；硬上限由平台按 ×2 算（= 90），与搬家前算法一致。",
     "⚠ 这个值必须是 45，不是 30。搬家时我差点写错，被钉子测试拦下：",
@@ -390,9 +668,6 @@
     "  显式传 softLimit，那个 30 从来轮不到 —— 是条死路径。",
     "  照着那行注释搬会把全体用户的分段长度从 45 悄悄改成 30。"
   ],
-  "max_chars": 45,
-  "max_chars_source": "estimated",
-
   "_comment_runtime": [
     "⭐ 这一段在 2026-08-24 之前是 null —— 因为 GPT-SoVITS 的进程是",
     "tools/scripts/start.ps1 直接起的，manifest.json 说了不算。这正是契约 §9 记的那",
@@ -448,29 +723,6 @@
     "cwd \".\" = 项目根，等于搬家前的 -WorkingDirectory $BASE_DIR。",
     "  ⛔ 别改成 {engine_dir}：infer_server.py 里有相对 CWD 的路径。"
   ],
-  "runtime": {
-    "python": "engines/gpt-sovits/.venv",
-    "entry": "../../lib/inference/infer_server.py",
-    "args": ["-a", "{host}", "-p", "{port}", "-c", "{root}/lib/inference/tts_infer.yaml"],
-    "cwd": ".",
-    "checkpoints": "models/tts/gpt-sovits",
-    "ready_endpoint": "/",
-    "ready_timeout_ms": 180000,
-    "ready_timeout_ms_source": "estimated",
-    "preload": false,
-    "verify": {
-      "sys_path": ["engines/gpt-sovits/infer", "engines/gpt-sovits"],
-      "imports": [
-        {
-          "module": "TTS",
-          "class": "TTS",
-          "methods": ["run", "set_ref_audio", "init_t2s_weights", "init_vits_weights"]
-        },
-        { "module": "TTS", "class": "TTS_Config" }
-      ]
-    }
-  },
-
   "_comment_capabilities": [
     "⛔ 这里原本写着 hot_swap_models=true。2026-08-30 退休、整行删掉。",
     "  同一件事现在写在**每个模型位**上：上面 gpt / sovits 两个位的 applies_at",
@@ -484,12 +736,5 @@
     "  第 1 步不动它（动了就是改行为），单独一刀处理。",
     "supports_finetune=true —— 全仓唯一一个。契约 v2 只管推理，这个键唯一",
     "  的用途是决定训练页显不显示。"
-  ],
-  "capabilities": {
-    "requires_reference_audio": true,
-    "reference_clip_seconds": [3, 10],
-    "streaming": true,
-    "output_sample_rate": 32000,
-    "supports_finetune": true
-  }
+  ]
 }

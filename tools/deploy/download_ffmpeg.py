@@ -8,6 +8,12 @@
 注册表。服务端优先用项目内这份，没有才退回 PATH 上的系统 ffmpeg；两者都没有时，
 非 WAV 的响应格式直接报错，不按 WAV 交付。
 
+同一目录还要放一份 FFmpeg 共享库（avcodec-*.dll 等）。torchaudio 2.9 起
+load()/save() 经 torchcodec，而 torchcodec 在 Windows 上是动态链接 FFmpeg 的：
+只有静态 ffmpeg.exe 不够，缺这批 DLL 时引擎会在读参考音频那一步报
+`Could not load libtorchcodec`。静态 exe 与共享库互不影响：exe 不动，DLL 只被
+torchcodec 按需加载。
+
 下载地址与许可分类以 THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json 为准，读不到该
 文件时用内置默认值。ffmpeg 不随发行包分发：GPL 文本与源码义务随这次下载走，
 落在上游分发者（BtbN）身上，不落在这个项目身上。
@@ -32,8 +38,13 @@ import zipfile
 PLATFORM_KEY = "windows-x86_64"
 MEMBERS = ["ffmpeg.exe", "ffprobe.exe"]
 
+# torchcodec 的 libtorchcodec_coreN.dll 直接导入这几族 FFmpeg 共享库。
+#   avdevice 不是必须的（coreN 不导入它），这里只列必需项。
+SHARED_REQUIRED = ("avcodec-", "avfilter-", "avformat-", "avutil-",
+                   "swresample-", "swscale-")
+
 # 内置默认下载地址（BtbN 的 win64-gpl 静态构建）。EXTERNAL_TOOLS.json 里有条目时
-# 以那份为唯一事实来源。
+# 以那份为唯一事实来源。共享库地址默认由它派生：同一个 release 的 -shared 包。
 DEFAULT_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
     "ffmpeg-master-latest-win64-gpl.zip"
@@ -57,8 +68,8 @@ def project_root(dest):
     return os.path.dirname(os.path.dirname(here))
 
 
-def source_url(root):
-    """从 EXTERNAL_TOOLS.json 读 Windows 下载地址，读不到时用 DEFAULT_URL。"""
+def distribution_sources(root):
+    """读 EXTERNAL_TOOLS.json 里 ffmpeg 的下载地址表，读不到时返回空表。"""
     candidates = [
         os.path.join(root, "THIRD_PARTY_LICENSES", "EXTERNAL_TOOLS.json"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -70,12 +81,27 @@ def source_url(root):
                 data = json.load(fh)
             for tool in data.get("tools", []):
                 if tool.get("tool_id") == "ffmpeg":
-                    url = (tool.get("distribution_sources") or {}).get(PLATFORM_KEY)
-                    if url:
-                        return url
+                    return tool.get("distribution_sources") or {}
         except Exception:
             continue
-    return DEFAULT_URL
+    return {}
+
+
+def source_url(root):
+    """从 EXTERNAL_TOOLS.json 读 Windows 静态包地址，读不到时用 DEFAULT_URL。"""
+    return distribution_sources(root).get(PLATFORM_KEY) or DEFAULT_URL
+
+
+def shared_url(root):
+    """共享库压缩包地址：优先读 windows-x86_64-shared，否则由静态地址派生。
+
+    派生规则写在名字上：同一个 BtbN release 里 `-gpl.zip` 与 `-gpl-shared.zip`
+    是同一份构建，静态 exe 与共享库的版本因此天然对齐。
+    """
+    explicit = distribution_sources(root).get(PLATFORM_KEY + "-shared")
+    if explicit:
+        return explicit
+    return source_url(root)[:-4] + "-shared.zip"
 
 
 def platform_dir(root):
@@ -173,6 +199,63 @@ def _extract_members(archive, member_basenames, dest_dir):
     return found
 
 
+def shared_libs_ok(dest_dir):
+    """共享库齐不齐：coreN 直接导入的那几族各有一个 DLL 就算齐。"""
+    try:
+        names = [n.lower() for n in os.listdir(dest_dir) if n.lower().endswith(".dll")]
+    except OSError:
+        return False
+    return all(any(n.startswith(pre) for n in names) for pre in SHARED_REQUIRED)
+
+
+def _extract_shared_libs(archive, dest_dir):
+    """只解压 FFmpeg 的共享库（av*/sw*.dll），exe 与其他文件一律不碰。
+
+    不覆盖 ffmpeg.exe / ffprobe.exe：静态构建继续由平台调用，
+    这批 DLL 只被 torchcodec 按需加载，两者互不影响。
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+    found = []
+    prefixes = SHARED_REQUIRED + ("avdevice-",)
+    with zipfile.ZipFile(archive) as zf:
+        for name in zf.namelist():
+            base = os.path.basename(name)
+            low = base.lower()
+            if not low.endswith(".dll"):
+                continue
+            if not any(low.startswith(pre) for pre in prefixes):
+                continue
+            with zf.open(name) as sfh, open(os.path.join(dest_dir, base), "wb") as dfh:
+                shutil.copyfileobj(sfh, dfh)
+            found.append(base)
+    return found
+
+
+def provision_shared(root, force=False):
+    """把 torchcodec 需要的共享库补进 vendor 目录；已经齐了就跳过。"""
+    dest_dir = platform_dir(root)
+    if not force and shared_libs_ok(dest_dir):
+        print(f"[ffmpeg] shared libraries already present in {dest_dir}")
+        return dest_dir
+
+    url = shared_url(root)
+    tmpdir = tempfile.mkdtemp(prefix="ffmpeg-shared-")
+    try:
+        archive = os.path.join(tmpdir, "ffmpeg-shared.zip")
+        _download(url, archive)
+        print(f"[ffmpeg] extracting shared libraries -> {dest_dir}")
+        found = _extract_shared_libs(archive, dest_dir)
+        print(f"[ffmpeg] shared libraries: {len(found)} file(s)")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    if not shared_libs_ok(dest_dir):
+        raise RuntimeError(
+            "shared FFmpeg libraries are incomplete after extraction: "
+            + ", ".join(SHARED_REQUIRED))
+    return dest_dir
+
+
 def provision(root, force):
     """把 ffmpeg 与 ffprobe 装到 root 下，返回安装目录。
 
@@ -181,24 +264,34 @@ def provision(root, force):
     """
     dest_dir = platform_dir(root)
     missing = [m for m in MEMBERS if force or not is_runnable(target_path(root, m))]
-    if not missing:
+    if missing:
+        url = source_url(root)
+        tmpdir = tempfile.mkdtemp(prefix="ffmpeg-dl-")
+        try:
+            archive = os.path.join(tmpdir, "ffmpeg-archive.zip")
+            _download(url, archive)
+            print(f"[ffmpeg] extracting {', '.join(missing)} -> {dest_dir}")
+            _extract_members(archive, missing, dest_dir)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+        not_runnable = [m for m in MEMBERS if not is_runnable(target_path(root, m))]
+        if not_runnable:
+            raise RuntimeError(f"extracted binaries are not runnable: {', '.join(not_runnable)}")
+        print(f"[ffmpeg] OK: {', '.join(MEMBERS)} in {dest_dir}")
+    else:
         print(f"[ffmpeg] already present and runnable: {', '.join(MEMBERS)} in {dest_dir}")
-        return dest_dir
 
-    url = source_url(root)
-    tmpdir = tempfile.mkdtemp(prefix="ffmpeg-dl-")
+    # 共享库与静态 exe 是两件事：exe 已在也要补，否则 torchaudio 2.9+ 的
+    #   torchcodec 起不来。下载失败只告警：平台的转码能力不依赖这批 DLL，
+    #   不该因为它连 ffmpeg 都装不上。
     try:
-        archive = os.path.join(tmpdir, "ffmpeg-archive.zip")
-        _download(url, archive)
-        print(f"[ffmpeg] extracting {', '.join(missing)} -> {dest_dir}")
-        _extract_members(archive, missing, dest_dir)
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-    not_runnable = [m for m in MEMBERS if not is_runnable(target_path(root, m))]
-    if not_runnable:
-        raise RuntimeError(f"extracted binaries are not runnable: {', '.join(not_runnable)}")
-    print(f"[ffmpeg] OK: {', '.join(MEMBERS)} in {dest_dir}")
+        provision_shared(root, force)
+    except Exception as e:
+        print(f"[ffmpeg] WARNING: shared FFmpeg libraries were not installed: {e}",
+              file=sys.stderr)
+        print("[ffmpeg] torchaudio 2.9+ needs them for torchcodec; engine audio decoding may fail.",
+              file=sys.stderr)
     return dest_dir
 
 
@@ -229,6 +322,11 @@ def main():
             sys_ok = is_runnable(shutil.which(os.path.splitext(m)[0]))
             print(f"[ffmpeg] system PATH  : {m:<12} {'present' if sys_ok else 'absent'}")
             overall = overall and (local_ok or sys_ok)
+        shared_ok = shared_libs_ok(platform_dir(root))
+        print(f"[ffmpeg] shared libs  : {'present' if shared_ok else 'absent'} ({platform_dir(root)})")
+        if not shared_ok:
+            print("[ffmpeg] note: torchaudio 2.9+ needs the shared libraries for torchcodec.",
+                  file=sys.stderr)
         return 0 if overall else 1
 
     try:

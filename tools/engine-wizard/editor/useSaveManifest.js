@@ -24,14 +24,21 @@ export function useSaveManifest (manifest, onSaved) {
   const id = manifest && manifest.id
   React.useEffect(() => { setResult(null) }, [id])
 
+  // 最新名片跟着渲染走。save 被一次「先扫描、再保存」的流程调用时，扫描结果写回
+  //   父层状态之后才轮到保存：闭包里那份 manifest 是调用那一刻的旧值，存下去就是
+  //   一张没有扫描结果的名片。读 ref 才能拿到刚刚写回的那一份。
+  const latest = React.useRef(manifest)
+  latest.current = manifest
+
   const save = async () => {
-    if (!id) return
+    const card = latest.current
+    if (!card || !card.id) return
     setBusy(true); setResult(null)
     try {
       const r = await fetch('/wizard/save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ manifest, overwrite: true, allowCreateDir: true }),
+        body: JSON.stringify({ manifest: card, overwrite: true, allowCreateDir: true }),
       })
       const j = await r.json()
       setResult(j)

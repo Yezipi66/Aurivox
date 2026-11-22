@@ -12,11 +12,9 @@ import { readSlots, writeSlots, emptySlot } from './weightSlots'
 import { seedArgText, withSeedSwitch } from './seedField'
 import { withCallKey } from './callWhitelist'
 import Select from '../../../web/src/components/common/Select'
+import { BOX } from './boxStyle'
 
 const APPLIES = ['call', 'launch']
-
-// 分段用的框：输出格式、辅助参考音频、多权重位三处同一形状。
-const BOX = { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }
 
 export default function OptionalCapabilities ({ manifest, onChange }) {
   const { t } = useT()

@@ -28,8 +28,12 @@ import Select from '../../../web/src/components/common/Select'
 // dirs 由外层传入（App 已用 useEngineDirs 取过一次，不重复请求）。
 // onSwitch(id) 由外层决定怎么落（App 里是 switchEngine：换目标并重读状态）。
 
-export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
+// domId：五步常驻之后，多个逃生口会同时挂在 DOM 里（第 1-3 步共用一个，
+//   第 5 步一个）。固定 id 会撞，所以由外层指定；不指定时用默认值，
+//   保持第 1-3 步那个的 id 不变（右下角状态条的「切换」按它定位）。
+export default function EngineEscapeHatch ({ id, dirs, onSwitch, domId }) {
   const { t } = useT()
+  const pickId = domId || 'wz-escape-pick'
   // 暂存的选择：与已提交的目标（id）分开记，没提交前不算数。
   const [pending, setPending] = React.useState(id || '')
   // 外部目标变了（提交成功、克隆完成）⇒ 暂存同步过去。
@@ -57,11 +61,11 @@ export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <label className="field-label" style={{ margin: 0 }} id="wz-escape-pick-label">
+        <label className="field-label" style={{ margin: 0 }} id={`${pickId}-label`}>
           {t('Engine target', '操作引擎')}
         </label>
-        <Select id="wz-escape-pick" className="control" style={{ minWidth: 240 }}
-          aria-labelledby="wz-escape-pick-label"
+        <Select id={pickId} className="control" style={{ minWidth: 240 }}
+          aria-labelledby={`${pickId}-label`}
           value={pending}
           onChange={(e) => { setPending(e.target.value); setSwitched(null) }}>
           <option value="">

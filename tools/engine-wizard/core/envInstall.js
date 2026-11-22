@@ -5,7 +5,7 @@
 // 进度与断点续传由 envProgress.js 负责，本文件只管「执行哪条命令、执行结果是什么」。
 
 const fs = require('node:fs')
-const { applyInstallChoices } = require('./installChoices')
+const { applyInstallChoices, declaredDeps } = require('./installChoices')
 const path = require('node:path')
 const { spawnSync, spawn } = require('node:child_process')
 const { projectRoot, engineDir } = require('./clone.js')
@@ -169,7 +169,7 @@ function withSyncPython (argv, version) {
   return [...argv, '--python', String(version)]
 }
 
-function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
+function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython, specs, specNames }) {
   const steps = []
   if (venv && Array.isArray(venv.argv)) {
     steps.push({
@@ -189,6 +189,12 @@ function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython })
     cwd: cwdRel,
     needs_network: true,
     env: sync || undefined,
+    // 这步的产物是「依赖清单里的包都装上」：把清单解析出的包名挂在这里，
+    //   断点续传与完成判定都读它。`-r requirements.txt` 形式下包名不在 argv 上，
+    //   没有这份列表就只能退化成「site-packages 非空」：装了 torch 就算过，
+    //   清单里其余的包从没装过也照样报完成。
+    specs: Array.isArray(specs) ? specs : undefined,
+    specNames: Array.isArray(specNames) && specNames.length ? specNames : undefined,
     why: 'Install dependencies from the upstream lock file.',
     whyZh: '照上游依赖清单安装。',
   })
@@ -419,6 +425,10 @@ function buildEnvPlan (input = {}) {
         sync: guessSync ? syncEnvFor(engineVenvDirAbs(root, id)) : null,
         targetPython: guessTarget,
         altPython: guessAltTarget,
+        specs,
+        // 完成判定用的干净包名列表（取包名、不比版本；锁文件路线读同目录 pyproject）。
+        //   与 specs 分开：specs 可能带版本串且界面在用，这份只供判据，不进界面。
+        specNames: declaredDeps(dir, guess),
       }),
     }
   }
@@ -439,6 +449,10 @@ function buildEnvPlan (input = {}) {
     sync: installSync,
     targetPython: installTarget,
     altPython: installAltTarget,
+    specs,
+    // 名片写死了安装命令：平台不再按清单推导，判据也不拿上游清单去核对
+    //   （这条命令可能有意只装一部分，拿清单核对会把它误判成「没装完」）。
+    specNames: null,
   })
 
   steps.push({

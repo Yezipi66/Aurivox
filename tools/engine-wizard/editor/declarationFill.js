@@ -1,17 +1,17 @@
-// 名片声明的兜底自动填：models.required 与 runtime.verify。
+// 名片声明的兜底自动填：models.required 与 runtime.verify.sys_path。
 // 判定与填值都是纯函数（与 manifestAutoFill.js 同一层），
 // 抽出来是因为「该不该填」的边界塞在 React effect 里只能靠点界面验，
 // 而点界面验不到「不该填的时候没填」。
 //
 // 为什么这两格要兜底：runtime.checkpoints 说的是「权重放哪」，
-//   models.required 说的是「哪几个文件算齐」，runtime.verify 说的是
-//   「拿这台引擎的解释器 import 哪些模块」。
-//   后两格空着时，平台只能说「目录在不在」，说不出「齐不齐」「起不起得来」
+//   models.required 说的是「哪几个文件算齐」，verify.sys_path 说的是
+//   「导入之前把哪个目录加进 sys.path」。
+//   空着时，平台只能说「目录在不在」，说不出「齐不齐」「起不起得来」
 //   （checkpoints.js 的 ready:null 与 env_deep 无 spec）。
 //   兜底的素材不靠猜：models.required 照第 3 步实际下到盘上的文件，
-//   verify.imports 照 call 段已经定下的模块。只有 sys_path 是按
-//   「克隆根」猜的（src 布局的引擎要把源码目录改进来），
+//   sys_path 按「克隆根」猜（src 布局的引擎要把源码目录改进来），
 //   猜得对不对不靠界面提示：第 5 步「引擎模块可导入」会报告实际结果。
+//   verify.imports 不兜底：它是静态声明，入口模块由检查侧在读取时现算。
 
 // 不算权重的文件：仓库说明、许可证、校验和、下载工具残留。
 // 只剔「 Provably 不是权重」的：README / LICENSE 这类文档名、
@@ -25,6 +25,10 @@ const NOT_MODEL_PATTERNS = [
   /\.md5$/i, /\.sha256$/i, /\.sha512$/i, /\.lock$/i,
   /\.md$/i, /\.rst$/i,
   /thumbs\.db$/i,
+  // 下载中间态：平台自己的下载器先写 `<正式文件名>.tmp`，下完才改名。
+  //   下载进行中取快照时它是盘上唯一那个文件，写进 required 就变成
+  //   「声明了一个下完就消失的名字」，第 5 步必然报缺。
+  /\.(tmp|part|partial|crdownload)$/i,
 ]
 
 function isModelFile (relPath) {
@@ -44,32 +48,11 @@ export function requiredFromFiles (files) {
   return files.filter(isModelFile).slice().sort()
 }
 
-/**
- * 从 call 段推出 verify.imports 该点名的模块。
- *
- * python 形态直接读 call.module；cli 形态找 argv 里的 -m 目标。
- *   两者都没有（cli 直接跑脚本文件、或 call 段还没填）时返回 null，
- *   那就填不了 imports，不硬猜。
- *
- * @param {object} manifest 当前名片
- * @returns {string|null} 模块名；推不出来则 null
- */
-export function verifyModuleFromCall (manifest) {
-  const call = (manifest && manifest.call) || {}
-  const kind = call.kind || 'python'
-  if (kind === 'python') {
-    return typeof call.module === 'string' && call.module ? call.module : null
-  }
-  if (kind === 'cli' && Array.isArray(call.argv)) {
-    const i = call.argv.indexOf('-m')
-    if (i >= 0 && i + 1 < call.argv.length) {
-      const m = call.argv[i + 1]
-      if (typeof m === 'string' && m) return m
-    }
-  }
-  return null
-}
-
+// verify.imports 不在这里自动填。它是名片里的静态声明：写进来就代表使用者
+//   额外要求验某个模块/类/方法。把它当作推理入口的副本写进去，等于在静态
+//   名片里存一份派生值，入口一改副本就过期，还会被第 5 步当成独立事实去 import。
+//   入口模块由检查侧在读取时现算（lib/engines/envCheck.js），不落盘。
+//
 // ---- models.required ----
 
 /**
@@ -161,61 +144,28 @@ export function withVerifySysPath (manifest) {
   }
 }
 
-// ---- runtime.verify.imports ----
+// ---- 合起来：一个 effect 填 verify 段 ----
 
 /**
- * 该不该把 verify.imports 填成 [{module}]（module-only，env_probe 认）。
+ * verify 段还能填（眼下只有 sys_path 这一格）就 true。
  *
- * 该填：call 段推得出模块、且这一格空着。
- * 不该填：使用者或扫描已经写过 imports（非空就不覆盖）。
- *
- * @param {object} manifest 当前名片
- * @returns {boolean} 该填就 true
- */
-export function shouldFillVerifyImports (manifest) {
-  if (!verifyModuleFromCall(manifest)) return false
-  const v = (manifest && manifest.runtime && manifest.runtime.verify) || {}
-  return !Array.isArray(v.imports) || v.imports.length === 0
-}
-
-/**
- * 填上 verify.imports。调用前先问 shouldFillVerifyImports。
- *
- * @param {object} manifest 当前名片（call 段已有模块名）
- * @returns {object} 填好的新名片（原对象不动）
- */
-export function withVerifyImports (manifest) {
-  const module = verifyModuleFromCall(manifest)
-  if (!module) return manifest
-  const rt = (manifest && manifest.runtime) || {}
-  const v = rt.verify || {}
-  return {
-    ...manifest,
-    runtime: { ...rt, verify: { ...v, imports: [{ module }] } },
-  }
-}
-
-// ---- 合起来：一个 effect 填完 verify 段 ----
-
-/**
- * verify 段任一格还能填（sys_path 或 imports）就 true。
+ * imports 不参与自动填：它是静态声明，不是推理入口的副本。
  *
  * @param {object} manifest 当前名片
  * @returns {boolean}
  */
 export function shouldFillVerify (manifest) {
-  return shouldFillVerifySysPath(manifest) || shouldFillVerifyImports(manifest)
+  return shouldFillVerifySysPath(manifest)
 }
 
 /**
- * 把 verify 段缺的格补上（各自先问各自的 should，互不影响）。
+ * 把 verify 段缺的格补上。
  *
  * @param {object} manifest 当前名片
- * @returns {object} 补好的新名片（原对象不动；一格都补不了时原样返回）
+ * @returns {object} 补好的新名片（原对象不动；补不了时原样返回）
  */
 export function withAutoFilledVerify (manifest) {
   let next = manifest
   if (shouldFillVerifySysPath(next)) next = withVerifySysPath(next)
-  if (shouldFillVerifyImports(next)) next = withVerifyImports(next)
   return next
 }

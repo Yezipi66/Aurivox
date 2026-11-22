@@ -6,7 +6,6 @@ import { useT } from '../../../web/src/lib/i18n'
 import Select from '../../../web/src/components/common/Select'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
-import { useEngineDirs } from './useEngineDirs'
 import { folderName } from './folderName'
 import { cloneDone, canUndoClone } from './prepareState'
 import { postJson } from './postJson'
@@ -99,7 +98,7 @@ function licenseText (meta, t) {
   return '—'
 }
 
-export default function StepPrepare ({ state, facts, factsId, onChange, onDone, onNext, prep, onPrep, onUndone }) {
+export default function StepPrepare ({ state, facts, factsId, onChange, onDone, onNext, prep, onPrep, onUndone, engineDirs }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   // 目录名留空 = 跟随链接：框里显示的是链接推出来的灰字，换链接名字就跟着换。
@@ -108,7 +107,7 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
   //   于是「解析的是新仓库、克隆与完成状态仍是旧目录」。
   const [idInput, setIdInput] = React.useState('')
   // 候选清单 = engines/ 下已有的目录，供「复用已有引擎」；新名字不在此列，直接手写。
-  const { dirs: engineDirs } = useEngineDirs()
+  //   与其余四步共用 App 持有的那一份，克隆完成后由外层统一刷新，不各自取。
   const res = prep.res || null
   const probe = prep.probe || null
   const plan = prep.plan || null
@@ -478,7 +477,7 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
             inputProps={{ id: 'wz-engine-id' }}
             onChange={(e) => setIdInput(e.target.value)}>
             <option value="">{t('— follow the link —', '跟随链接')}</option>
-            {engineDirs.filter((d) => d.id && !d.id.startsWith('_')).map((d) => (
+            {(engineDirs || []).filter((d) => d.id && !d.id.startsWith('_')).map((d) => (
               <option key={d.id} value={d.id}>
                 {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '尚无名片')}）`}
               </option>
@@ -581,29 +580,40 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
         </>
       )}
 
-      {/* 命令区 + 克隆结果提示（只在读取成功、且还没克隆时显示）。
-          没读取时读不到仓库，摆一条 git clone 是「还没确认仓库就让人往下走」；
-          克隆完成后命令过时，交给下面的「已克隆」提示。
-          这里给真正的 git clone 命令，不只显示 engines/<name>/
-            这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
-          不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
-          判据：此区域里的命令必须与真正要执行的那条逐字相同。*/}
+      {/* 命令区：把这一步真正会执行的事情逐条摆出来，不只挑 git clone 那一条。
+          判据（与第 2 步同一条）：这里列的必须与后端计划里的逐字相同。
+          读取时已经取过一份只读计划（/wizard/clone 不带 execute），所以这里直接
+            渲染 planForCur.steps，不另拼一份命令：另拼的那份会与后端漂移，
+            使用者看到的就不是真正要跑的那条。
+          目录已存在时后端返回的是「复用」，没有命令要跑，这一区自然为空。*/}
+      {resForCur && resForCur.ok && readSomething && !done && !reused
+        && planForCur && Array.isArray(planForCur.steps) && planForCur.steps.length > 0 && (
+        <div className="plan-kv" style={{ rowGap: 'var(--sp-4)' }}>
+          <span className="pk">{t('Commands', '命令')}</span>
+          <span className="pv">
+            {planForCur.steps.map((st, i) => {
+              // gitignore 那一步没有命令行：它写的是 .gitignore，不是跑一条命令。
+              const argv = Array.isArray(st.argv) && st.argv.length > 0
+                ? st.argv.map(String).join(' ') : ''
+              const note = st.whyZh || st.why || ''
+              return (
+                <div key={st.kind || i} style={{ marginTop: i > 0 ? 'var(--sp-6)' : 0 }}>
+                  {argv && <code>{argv}</code>}
+                  {note && (
+                    <div className="field-hint" style={{ margin: 0 }}>
+                      {argv ? '# ' : ''}{t(st.why, st.whyZh)}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </span>
+        </div>
+      )}
+
+      {/* 克隆结果提示：与命令区同一条件下显示，两者说的是同一件事的两种状态。 */}
       {resForCur && resForCur.ok && readSomething && !done && (
         <>
-          {/* 命令区：复用时没有命令要跑。
-              复用是这一次的常态（目录已经在了），摆一条不会执行的 git clone
-                会让使用者以为下一步会去拉一遍。*/}
-          {!reused && (
-            <div className="plan-kv">
-              <span className="pk">{t('Command', '命令')}</span>
-              <span className="pv">
-                <code>
-                  {`git clone ${(resForCur && resForCur.cloneUrl) || ''} engines/${curId}`}
-                </code>
-              </span>
-            </div>
-          )}
-
           {cloneRes && !cloneRes.ok && !dirNotEmpty && (
             <div className="msg msg-danger">{cloneRes.error}</div>
           )}

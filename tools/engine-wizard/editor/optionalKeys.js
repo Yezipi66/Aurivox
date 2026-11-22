@@ -74,19 +74,9 @@ export const OPTIONAL_KEYS = [
     // 这一项的提示说明「为什么值得填」：不填时平台不拦，填了才拦。
     noteEn: 'A longer reference recording means slower feature extraction, higher memory usage, and a longer wait for the first audio byte.',
     noteZh: '参考音频越长，特征提取越慢，内存占用越高，首字节延迟也越高。' },
-  // 默认是常量别名：不填这个键就是 file（hostProfile.js 里 call.returns 缺省为 'file'），所以 file 这条直接标「（默认）」，
-  //   不单列一条「不填」；选它即不填这个键。
-  { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'], defaultValue: 'file',
-    defaultKind: 'constant',
-    en: 'How the engine returns audio', zh: '音频返回方式',
-    fallbackEn: 'writes a file', fallbackZh: '写成文件',
-    ctrlTitleEn: 'Left out, the platform always writes the result to a file. Choosing this entry leaves the key out.',
-    ctrlTitleZh: '不填这个键时，平台固定按「写成文件」处理，结果写到输出文件。选这一项就是不填。',
-    optionLabels: {
-      file: { en: 'writes a file (default)', zh: '写成文件（默认）' },
-      bytes: { en: 'returns bytes', zh: '返回字节' },
-      generator: { en: 'yields chunks', zh: '逐块生成' },
-    } },
+  // call.returns 不在这里：它和输出槽位（output_path 该不该填）是同一件事的两面，
+  //   摆在必填区的槽位旁边（RequiredFields.jsx），四档 file / dir / bytes / generator 一处说完。
+  //   两处各列一份选项时已经分叉过一次：那边缺 bytes / generator，这边缺 dir。
   { path: 'call.generator_sample_rate', kind: 'number', when: (m) => get(m, 'call.returns') === 'generator',
     en: 'Generator sample rate (Hz)', zh: '生成器采样率（Hz）',
     fallbackEn: 'required for generator output', fallbackZh: '生成器形态必填' },

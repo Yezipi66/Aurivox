@@ -13,13 +13,15 @@ const os = require('node:os')
 const path = require('node:path')
 
 const { saveManifest, validateId, listInstalled, readManifestById } = require('../core/save.js')
+const { fromV011 } = require('../../../lib/engines/contract')
 
 function tmpEngines () {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-wizard-save-'))
 }
 
 function readBack (dir, id) {
-  return JSON.parse(fs.readFileSync(path.join(dir, id, 'manifest.json'), 'utf-8'))
+  // v0.1.1 磁盘是三节；投影成扁平再看内容，测试只关心往返一致，不焊死磁盘格式。
+  return fromV011(JSON.parse(fs.readFileSync(path.join(dir, id, 'manifest.json'), 'utf-8')))
 }
 
 // id 合法性 ： 这是最常错的一项，且错了平台会报 ID_MISMATCH
@@ -105,8 +107,8 @@ test('id 不合法 ⇒ BAD_ID，且不建任何目录', () => {
 // 写出去的 JSON 必须永远可解析（不许留半个文件）
 test('循环引用不产生半个文件', () => {
   const dir = tmpEngines()
-  const m = { id: 'wobble', label: 'W' }
-  m.self = m                       // JSON.stringify 会抛
+  const m = { id: 'wobble', label: 'W', runtime: { python: 'engines/wobble/.venv' } }
+  m.runtime.self = m.runtime    // runtime 是会被投影保留的字段，JSON.stringify 会抛
   const r = saveManifest(m, { enginesDir: dir })
   assert.strictEqual(r.ok, false, '不可序列化的输入不该报成功')
   // 目录建了但不该留半个 JSON

@@ -101,13 +101,13 @@ const SPARK = { id: 'spark-tts', label: 'Spark TTS', contract_version: 2,
   call: { kind: 'python', module: 'sparktts.api', class: 'SparkTTS',
     method: 'infer', bind: { text: 'text' }, returns: 'file', seed: 'none' } }
 
-test('名片缺声明 + 盘上有文件 + call 有模块 ⇒ required 与 verify 都填上', { skip }, () => withDom(async () => {
+test('名片缺声明 + 盘上有文件 + call 有模块 ⇒ required 与 sys_path 填上，imports 不写', { skip }, () => withDom(async () => {
   const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', SNAP)
   // 杂质（README / .lock）剔掉，只剩两个权重文件
   assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'])
-  // sys_path 猜克隆根；imports 照 call 段的模块，module-only
+  // sys_path 猜克隆根；imports 是静态声明，不由推理入口派生后写进名片
   assert.deepStrictEqual(api.m.runtime.verify.sys_path, ['engines/spark-tts'])
-  assert.deepStrictEqual(api.m.runtime.verify.imports, [{ module: 'sparktts.api' }])
+  assert.strictEqual(api.m.runtime.verify.imports, undefined)
   await act(async () => root.unmount())
 }))
 
@@ -116,9 +116,9 @@ test('使用者声明过 required（哪怕一个文件）⇒ 不覆盖他的判�
     { ...SPARK, models: { required: ['only_this.pt'] } },
     'engines/spark-tts/checkpoints', SNAP)
   assert.deepStrictEqual(api.m.models.required, ['only_this.pt'])
-  // verify 两格照填（那是另一件事，互不干扰）
+  // sys_path 照填（那是另一件事，互不干扰）；imports 不由前端派生
   assert.deepStrictEqual(api.m.runtime.verify.sys_path, ['engines/spark-tts'])
-  assert.deepStrictEqual(api.m.runtime.verify.imports, [{ module: 'sparktts.api' }])
+  assert.strictEqual(api.m.runtime.verify.imports, undefined)
   await act(async () => root.unmount())
 }))
 

@@ -41,21 +41,25 @@ test('界面上有取消按钮，且它真的打取消端点', () => {
     '界面上应当有「取消」文案')
 })
 
-test('取消与暂停是两件不同的事，界面文案要说清楚', () => {
+test('取消与暂停是两件不同的事，取消落到文件行的已中断态', () => {
   assert.match(SRC, /onClick=\{pauseDownload\}/, '应当有暂停按钮')
-  assert.match(SRC, /stage === 'cancelled'/, '应当能显示已取消的状态')
+  assert.match(SRC, /view === INTERRUPTED/, '取消或失败的文件应当显示已中断')
   // 暂停的说明必须写清楚「在当前文件完成后生效」，不写就是欺骗使用者
   assert.match(SRC, /暂停将在当前/,
     '暂停的说明必须写清楚它在当前文件完成后才生效')
 })
 
-test('进度按文件分槽，不再是单一全局进度', () => {
+test('进度按文件分槽，直接长在表格行内', () => {
   assert.match(SRC, /const \[dlFiles,\s*setDlFiles\]\s*=\s*React\.useState/,
-    '应当有按文件分槽的进度表 dlFiles')
+    '应当有按文件分槽的任务表 dlFiles')
   assert.doesNotMatch(SRC, /const \[dlProgress,\s*setDlProgress\]/,
     '单一的全局进度应当已经不存在了')
-  assert.match(SRC, /dlEntries/,
-    '界面应当从分槽表里取出条目来渲染')
+  assert.match(SRC, /const task = taskOf\(f\)/,
+    '表格行应当按文件取出自己的任务')
+  assert.match(SRC, /view === DOWNLOADING/,
+    '正在下载应当在表格行内渲染')
+  assert.doesNotMatch(SRC, /dlEntries/,
+    '表格之外不该再有独立进度区的条目遍历')
 })
 
 test('死代码已删：界面不再走执行上游命令的那条路', () => {

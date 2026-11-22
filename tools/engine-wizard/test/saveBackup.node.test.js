@@ -8,6 +8,9 @@ const { test } = require('node:test')
 
 // save.js 的写盘入口：saveManifest(manifest, opts)
 const { saveManifest } = require('../core/save.js')
+const { fromV011 } = require('../../../lib/engines/contract')
+// v0.1.1 磁盘是三节；读回时投影，测试只关心往返内容一致。
+const readCard = (p) => fromV011(JSON.parse(fs.readFileSync(p, 'utf8')))
 // saveManifest(manifest, { enginesDir })：用引擎目录直接指向临时根，不碰真仓库
 const writeFn = ({ manifest, root, overwrite }) =>
   saveManifest(manifest, { enginesDir: path.join(root, 'engines'), overwrite })
@@ -47,9 +50,9 @@ test('覆盖保存：备份内容等于覆盖前', () => {
   const r = writeFn({ id: 'eng1', manifest: M2, root, overwrite: true })
   assert.strictEqual(r.ok, true)
   assert.ok(r.backup && fs.existsSync(r.backup), '覆盖时应留下备份')
-  const bak = JSON.parse(fs.readFileSync(r.backup, 'utf8'))
+  const bak = readCard(r.backup)
   assert.strictEqual(bak.label, 'first', '备份应是覆盖前的内容')
-  const cur = JSON.parse(fs.readFileSync(r.path, 'utf8'))
+  const cur = readCard(r.path)
   assert.strictEqual(cur.label, 'second')
   fs.rmSync(root, { recursive: true, force: true })
 })
@@ -59,7 +62,7 @@ test('二次覆盖：每次一份带时间戳的备份，内容是上一次的',
   writeFn({ id: 'eng1', manifest: M1, root })
   writeFn({ id: 'eng1', manifest: M2, root, overwrite: true })
   const r = writeFn({ id: 'eng1', manifest: { ...M2, label: 'third' }, root, overwrite: true })
-  const bak = JSON.parse(fs.readFileSync(r.backup, 'utf8'))
+  const bak = readCard(r.backup)
   assert.strictEqual(bak.label, 'second', '备份应是上一次的内容')
   assert.match(path.basename(r.backup), /^manifest\.\d{8}-\d{6}-\d{3}\.bak$/,
     '备份名带时间戳：只留一份会把上一次的改动一起冲掉')

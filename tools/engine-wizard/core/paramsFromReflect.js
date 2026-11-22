@@ -2,6 +2,8 @@
 // 反射 → parameters[] 草稿 + 平台词候选。复用 scaffold-params.cjs 的排除名单与判定函数。
 const path = require('node:path')
 const fs = require('node:fs')
+// v0.1.1：磁盘三节，读盘后投影成扁平视图（反射要读 call.module / runtime.python）。
+const { fromV011 } = require('../../../lib/engines/contract')
 
 // require 相对本文件解析（与 scaffold-params.cjs 的顶层 require 同一条理由：
 //   写成 '../scaffold-params.cjs' 会在 require 失败时被 catch 吞成
@@ -343,14 +345,8 @@ function mergeReflections (list) {
   return out
 }
 
-/** 反射一台引擎（可含多个方法）并直接产出草稿包。不写盘。 */
-function reflectAndBuild (spec, opts = {}) {
-  const methods = Array.isArray(opts.methods) && opts.methods.length
-    ? opts.methods
-    : [spec.method || null]
-  const results = methods.map((m) => SCAFFOLD.reflectParams(
-    { ...spec, method: m }, { timeoutMs: opts.timeoutMs }))
-  const merged = mergeReflections(results)
+/** 反射结果 → 草稿包：同步版与异步版共用的组装段。 */
+function assembleDraft (merged, spec, opts) {
   if (!merged.ok) return merged
   const pkg = buildDraftPackage(merged, opts)
   if (!pkg.ok) return pkg
@@ -367,6 +363,29 @@ function reflectAndBuild (spec, opts = {}) {
   if (cross) pkg.warnings = [...(pkg.warnings || []), cross]
   pkg.counts = { ...pkg.counts, cross_warnings: cross ? 1 : 0 }
   return pkg
+}
+
+function methodsOf (spec, opts) {
+  return Array.isArray(opts.methods) && opts.methods.length
+    ? opts.methods
+    : [spec.method || null]
+}
+
+/** 反射一台引擎（可含多个方法）并直接产出草稿包。不写盘。同步版给 CLI 与测试。 */
+function reflectAndBuild (spec, opts = {}) {
+  const results = methodsOf(spec, opts).map((m) => SCAFFOLD.reflectParams(
+    { ...spec, method: m }, { timeoutMs: opts.timeoutMs }))
+  return assembleDraft(mergeReflections(results), spec, opts)
+}
+
+/** 异步版给 web 服务：反射不阻塞事件循环，别的请求不必排它的队。 */
+async function reflectAndBuildAsync (spec, opts = {}) {
+  const results = []
+  for (const m of methodsOf(spec, opts)) {
+    results.push(await SCAFFOLD.reflectParamsAsync(
+      { ...spec, method: m }, { timeoutMs: opts.timeoutMs }))
+  }
+  return assembleDraft(mergeReflections(results), spec, opts)
 }
 
 // 端点入参 → 反射 spec。只做搬运：从盘上读名片，把事实抄进 spec。
@@ -395,7 +414,7 @@ function buildSpec (body, opts) {
   let manifest = {}
   const mf = path.join(dir, 'manifest.json')
   if (fs.existsSync(mf)) {
-    try { manifest = JSON.parse(fs.readFileSync(mf, 'utf8')) } catch { manifest = {} }
+    try { manifest = fromV011(JSON.parse(fs.readFileSync(mf, 'utf8'))) } catch { manifest = {} }
   }
   const call = manifest.call || {}
   const rt = manifest.runtime || {}
@@ -452,6 +471,7 @@ module.exports = {
   buildDraftPackage,
   mergeReflections,
   reflectAndBuild,
+  reflectAndBuildAsync,
   buildSpec,
   candidatesFor,
   mapCandidatesFor,

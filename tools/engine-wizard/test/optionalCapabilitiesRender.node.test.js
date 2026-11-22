@@ -43,6 +43,10 @@ function loadJsx (file, stubMap) {
     }
     // 下拉换成了页面内的组件，这里只要能选值就够，交互细节由真组件那条测试守。
     if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
+    // 分段框是纯样式常量，渲染与它无关，给一份形状即可。
+    if (id.endsWith('./boxStyle')) {
+      return { BOX: { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }, BOX_GAP: 8 }
+    }
     throw new Error(file + ' 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func

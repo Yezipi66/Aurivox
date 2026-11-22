@@ -83,7 +83,7 @@ function main() {
       continue
     }
     results.push(args.deep
-      ? checkEngineEnvDeep(profile, { rootDir: ROOT })
+      ? checkEngineEnvDeep(profile, { rootDir: ROOT, call: m.call })
       : checkEngineEnvShallow(profile, { rootDir: ROOT }))
   }
 

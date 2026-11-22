@@ -40,7 +40,13 @@ function tierOf (c) {
   return c.score > 0 ? 'cli' : 'source'
 }
 
-export default function EntryChoice ({ manifest, onChange, candidates = [], confidence = null, pythonEntries = [] }) {
+export default function EntryChoice ({
+  manifest, onChange, candidates = [], confidence = null, pythonEntries = [],
+  // 调用方式（cli / python）决定这一格填什么，所以它作为左侧控件并入同一行：
+  //   形态与入口分开摆时，人要先读到上面那一格才知道这一格该填模块名还是命令行词序。
+  //   actionSlot 放扫描按钮，跟在同一行右边（它改的正是这两格）。
+  kindSlot = null, actionSlot = null,
+}) {
   const { t } = useT()
   const opts = Array.isArray(candidates) ? candidates : []
   const value = entryText(manifest)
@@ -127,23 +133,28 @@ export default function EntryChoice ({ manifest, onChange, candidates = [], conf
       {/* 一个控件装住这个值：外观是项目下拉的那一套，值可以直接打字。
           编辑中按原样显示：名片里存模块名、显示出文件路径，两者不是同一个词，
           收不住这份原样文字的话，打到一半命中候选会被换成整条路径，光标跟着跳走。 */}
-      <Select editable value={shown}
-        title={value || undefined}
-        placeholder={t('A module name or a script path, e.g. pkg.cli',
-          '模块名或脚本路径，如 pkg.cli')}
-        onChange={(e) => {
-          const next = e.target.value
-          setTyping(next)
-          onChange((cur) => writeEntry(cur, next, opts, engineId))
-        }}
-        inputProps={{
-          'aria-label': t('Inference entry', '推理入口'),
-          onBlur: () => setTyping(null),
-        }}>
-        {ordered.map((c) => (
-          <option key={c.file || c.module} value={c.file || c.module}>{optionLabel(c)}</option>
-        ))}
-      </Select>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {kindSlot}
+        <Select editable value={shown}
+          style={kindSlot ? { flex: 1, minWidth: 200 } : undefined}
+          title={value || undefined}
+          placeholder={t('A module name or a script path, e.g. pkg.cli',
+            '模块名或脚本路径，如 pkg.cli')}
+          onChange={(e) => {
+            const next = e.target.value
+            setTyping(next)
+            onChange((cur) => writeEntry(cur, next, opts, engineId))
+          }}
+          inputProps={{
+            'aria-label': t('Inference entry', '推理入口'),
+            onBlur: () => setTyping(null),
+          }}>
+          {ordered.map((c) => (
+            <option key={c.file || c.module} value={c.file || c.module}>{optionLabel(c)}</option>
+          ))}
+        </Select>
+        {actionSlot}
+      </div>
       {value && <div className="field-hint">{wrote}</div>}
       {kind === 'python' && pyOpts.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>

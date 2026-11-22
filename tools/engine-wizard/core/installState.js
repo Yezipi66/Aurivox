@@ -9,6 +9,8 @@ const path = require('node:path')
 
 // 权重落盘路径只有一处答案：core/checkpointsPath.js。
 const { checkpointsAbsPath, resolveCheckpointsRel } = require('./checkpointsPath')
+// v0.1.1：磁盘三节，读盘后投影成扁平视图。
+const { fromV011 } = require('../../../lib/engines/contract')
 
 // 进度文件名。
 const INSTALL_FILE = '.wizard-install.json'
@@ -181,7 +183,7 @@ function manifestPresent (dir) {
 
 // 名片原文：权重落点以它为准（runtime.checkpoints）。读不到返回 null。
 function readManifest (dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) } catch (e) { return null }
+  try { return fromV011(JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))) } catch (e) { return null }
 }
 
 // checkpoints 下的模型文件，递归列举（含子目录）。

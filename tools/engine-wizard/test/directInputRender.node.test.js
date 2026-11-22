@@ -53,7 +53,10 @@ const StepModels = loadJsx('StepsExtra.jsx', {
   './downloadRunner': {
     downloadFiles: async () => ({}), readSse: async () => {},
     fileSlot: (f) => `${f.kind === 'url' ? 'url' : 'repo'}|${f.kind === 'url' ? f.url : f.repo}|${f.subdir || ''}|${f.name}`,
+    fileLabel: (f) => (f.subdir ? `${f.subdir}/${f.name || ''}` : (f.name || '')),
+    attachDownloadProgress: () => () => {},
   },
+  './downloadTask': loadEsm(path.join(EDITOR_DIR, 'downloadTask.js')),
   // 确认弹窗是主界面的共享组件，本测试只关心下载面板，不评价它。
   'components/common/Dialogs': { ConfirmDialog: () => null },
   './downloadSource': loadEsm(path.join(EDITOR_DIR, 'downloadSource.js')),
@@ -110,7 +113,18 @@ define('fetch', async (url) => {
 
 const container = dom.window.document.getElementById('root')
 const root = ReactDOMClient.createRoot(container)
-const settle = () => new Promise((resolve) => setTimeout(resolve, 80))
+// 等这一轮渲染落地。原来固定 80ms：单跑够，批量跑（多个测试文件并行）时
+//   CPU 一忙就不够，断言会读到「还没重渲染」的中间态，表现为偶发失败。
+//   改成轮询到元素数连续两次不变：快的时候比 80ms 还早返回，慢的时候自己等。
+const settle = async () => {
+  let prev = -1
+  for (let i = 0; i < 30; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const now = container.querySelectorAll('*').length
+    if (now === prev) return
+    prev = now
+  }
+}
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let seq = 0
@@ -127,6 +141,7 @@ async function show (probe = null) {
 const inputs = () => [...container.querySelectorAll('input')]
 const repoInput = () => inputs().find((i) => String(i.placeholder || '').includes('huggingface.co/org/model'))
 const fileInput = () => inputs().find((i) => String(i.placeholder || '').includes('model.safetensors'))
+// 手填的下载位置输入框已移除：模型仓库与文件直链都只填网址。
 const destInputs = () => inputs().filter((i) => String(i.placeholder || '').includes('下载位置'))
 const buttons = (text) => [...container.querySelectorAll('button')]
   .filter((b) => b.textContent.trim() === text)
@@ -140,27 +155,21 @@ test('第 1 步没有探测结果时仍显示权重来源框，默认在引擎�
   assert.strictEqual(buttons('文件直链').length, 1)
   assert.strictEqual(repoInput(), undefined, '未切页签时不渲染其它页签的输入框')
   assert.ok(!has('No probe data'), '探测缺失不该挡住手填')
-  assert.strictEqual(buttons('下载全部').length, 0, '清单为空时没有可下载条目')
+  assert.strictEqual(buttons('下载未完成').length, 0, '清单为空时没有可下载条目')
 })
 
-test('模型仓库页签：两个主域名共用一个入口，下载位置随条目进入列文件请求', async () => {
+test('模型仓库页签：两个主域名共用一个入口，没有手填下载位置框', async () => {
   await show()
   Simulate.click(buttons('模型仓库')[0])
   await settle()
   assert.ok(repoInput(), '切到页签后才出现仓库输入框')
+  assert.strictEqual(destInputs().length, 0, '下载位置输入框已移除，仓库只填网址')
   Simulate.change(repoInput(), { target: { value: 'https://huggingface.co/Org/Model-A' } })
-  await settle()
-  Simulate.change(destInputs()[0], { target: { value: 'sub-a' } })
   await settle()
   Simulate.click(buttons('引入仓库')[0])
   await settle()
   assert.ok(has('已识别为 Hugging Face 仓库 Org/Model-A'))
   assert.ok(buttons('列出文件').length > 0, '加入后要出现真正的读取按钮')
-  fetched.length = 0
-  Simulate.click(buttons('列出文件')[0])
-  await settle()
-  assert.ok(fetched.some((u) => u.includes('subdir=sub-a')),
-    '手填的下载位置要真的带进列文件请求，而不是只写在界面上')
 
   Simulate.change(repoInput(), { target: { value: 'https://www.modelscope.cn/models/iic/Demo-Model' } })
   await settle()
@@ -173,17 +182,16 @@ test('文件直链页签：条目进同一张表，可一键下载全部，也�
   await show()
   Simulate.click(buttons('文件直链')[0])
   await settle()
+  assert.strictEqual(destInputs().length, 0, '下载位置输入框已移除，直链只填网址')
   Simulate.change(fileInput(), { target: { value: 'https://example.org/weights/model.safetensors' } })
-  await settle()
-  Simulate.change(destInputs()[0], { target: { value: 'sub/model.safetensors' } })
   await settle()
   Simulate.click(buttons('加入清单')[0])
   await settle()
   assert.ok(container.querySelector('table thead').textContent.includes('来源'), '表头要写明来源')
   assert.ok(container.querySelector('table tbody').textContent.includes('文件直链'), '表格要标出这一行的来源')
-  assert.ok(has('model.safetensors') && has('sub/'), '文件名与下载位置都要看得见')
+  assert.ok(has('model.safetensors'), '文件名从网址末段取到')
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 1)
-  assert.strictEqual(buttons('下载全部').length, 1, '只有一个下载全部按钮')
+  assert.strictEqual(buttons('下载未完成').length, 1, '只有一个下载未完成按钮')
   assert.strictEqual(buttons('移除').length, 1, '每一行都能从清单里去掉')
 
   Simulate.click(buttons('移除')[0])
@@ -210,9 +218,10 @@ test('仓库与它列出的文件在同一张表里，移除仓库时文件一�
   assert.strictEqual(after.querySelectorAll('tr').length, 2, '读取后文件行紧随仓库行')
   assert.ok(after.textContent.includes('model.safetensors'), '文件与仓库在同一张表')
   assert.ok(after.textContent.includes('1 个文件'), '仓库行要报出已列出的数量')
-  assert.ok(buttons('下载全部').length === 1)
+  assert.strictEqual(buttons('下载未完成').length, 1, '顶部一个「下载未完成」')
+  assert.strictEqual(buttons('下载全部').length, 1, '仓库行一个「下载全部」')
 
-  Simulate.click(buttons('移除')[0])
+  Simulate.click(buttons('-')[0])
   await settle()
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '移除仓库要带走它列出的文件')
 })
@@ -250,7 +259,7 @@ test('两个仓库同时列文件时，读取状态各自归属', async () => {
   manifestDelay = 0
 })
 
-test('同一仓库两个下载位置各占一行，不会被去重吃掉', async () => {
+test('同一仓库两个子目录各占一行，不会被去重吃掉', async () => {
   const probe = {
     downloader_cmds: [
       { tool: 'hf', source: 'hf', repo: 'Org/A', dir: 'checkpoints/a', raw: 'a' },
@@ -259,7 +268,7 @@ test('同一仓库两个下载位置各占一行，不会被去重吃掉', async
   }
   await show(probe)
   const rows = container.querySelectorAll('table tbody tr')
-  assert.strictEqual(rows.length, 2, '两个下载位置是两条仓库行')
+  assert.strictEqual(rows.length, 2, '上游命令的两个子目录是两条仓库行')
   assert.ok([...rows].every((r) => r.textContent.includes('Org/A')))
   assert.strictEqual([...container.querySelectorAll('button')]
     .filter((b) => b.textContent.trim() === '列出文件').length, 2)
@@ -277,5 +286,58 @@ test('刷新后恢复手填的仓库与直链条目', async () => {
   assert.ok(table, '恢复出来的条目要有清单表')
   assert.ok(table.textContent.includes('Org/Restored'), '手填仓库行要回来')
   assert.ok(table.textContent.includes('r.bin'), '文件直链行要回来')
+  restoredState = null
+})
+
+test('点下载后同一行立刻变成正在下载，进度长在表格行内', async () => {
+  restoredState = {
+    manifest: [{ name: 'model.safetensors', size: 1000, repo: 'Org/Model-A',
+      tool: 'hf', subdir: '', status: 'missing' }],
+    dedup: true, pastedRepos: [], pastedFiles: [],
+    removedCmds: [], removedLinks: [], sourceChoices: {},
+  }
+  await show()
+  const before = container.querySelector('table tbody tr')
+  assert.ok(before, '清单要有一行文件')
+  assert.ok(before.textContent.includes('model.safetensors'))
+  assert.strictEqual(buttons('下载').length, 1, '未下载时给的是下载按钮')
+  assert.ok(!before.textContent.includes('正在下载'), '还没点时不该报正在下载')
+
+  Simulate.click(buttons('下载')[0])
+  await settle()
+  const after = container.querySelector('table tbody tr')
+  const statusCell = after.children[4]
+  assert.strictEqual(statusCell.textContent.trim(), '0%', '还没收到字节时显示 0%')
+  assert.match(statusCell.firstElementChild.style.color, /--text/,
+    '未完成时百分比是白色')
+  assert.strictEqual(buttons('下载中…').length, 1, '正在下载时按钮不许重复派单')
+  assert.strictEqual(buttons('下载').length, 0, '未下载的按钮要让位给新状态')
+  restoredState = null
+})
+
+test('已列出的文件可以折叠，收起后只剩仓库行', async () => {
+  restoredState = {
+    manifest: [
+      { name: 'a.bin', size: 10, repo: 'Org/Model-A', tool: 'hf', subdir: '', status: 'missing' },
+      { name: 'b.bin', size: 20, repo: 'Org/Model-A', tool: 'hf', subdir: '', status: 'missing' },
+    ],
+    dedup: true, pastedRepos: [], pastedFiles: [],
+    removedCmds: [], removedLinks: [], sourceChoices: {}, collapsedRepos: [],
+  }
+  const probe = {
+    downloader_cmds: [{ tool: 'hf', source: 'hf', repo: 'Org/Model-A', dir: 'checkpoints', raw: 'hf download Org/Model-A' }],
+  }
+  await show(probe)
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 3, '仓库行加两个文件行')
+  assert.strictEqual(buttons('▾').length, 1, '默认展开')
+
+  Simulate.click(buttons('▾')[0])
+  await settle()
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 1, '收起后只剩仓库行')
+  assert.strictEqual(buttons('▸').length, 1, '收起后箭头要翻转')
+
+  Simulate.click(buttons('▸')[0])
+  await settle()
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 3, '再点一次要展开回来')
   restoredState = null
 })

@@ -1,4 +1,151 @@
 {
+  "contract_version": 3,
+  "registration": {
+    "id": "REPLACE_ME",
+    "label": "REPLACE ME（界面上显示的名字）",
+    "upstream": {
+      "url": "https://github.com/REPLACE/REPLACE",
+      "commit": null,
+      "commit_unknown_reason": "还没定：先跑通再钉（填了这行 install 就会拒绝执行）",
+      "license": "REPLACE（上游许可证原文放 THIRD_PARTY_LICENSES/）"
+    },
+    "local_changes": "LOCAL-CHANGES.md",
+    "install": {
+      "env_command": [
+        "uv",
+        "sync"
+      ]
+    },
+    "models": {
+      "required": [
+        "REPLACE_ME.bin"
+      ],
+      "hint": "去哪儿下、多大、需不需要先在网页上点同意 —— 写在这里，界面上会显示。",
+      "source": {
+        "url": "https://huggingface.co/REPLACE/REPLACE",
+        "license_gate": false,
+        "command": [
+          "REPLACE",
+          "download",
+          "--repo",
+          "REPLACE/REPLACE",
+          "--local-dir",
+          "{checkpoints}"
+        ],
+        "cwd": "engine_dir"
+      }
+    },
+    "weights": [
+      {
+        "name": "model",
+        "label": "Model",
+        "applies_at": "launch"
+      }
+    ],
+    "base_url_env": "REPLACE_BASE_URL",
+    "max_chars": 50,
+    "max_chars_source": "estimated",
+    "timeout_ms": 180000,
+    "timeout_ms_source": "estimated",
+    "capabilities": {
+      "requires_reference_audio": true,
+      "reference_clip_seconds": null,
+      "streaming": false,
+      "output_sample_rate": 22050,
+      "supports_finetune": false
+    },
+    "maps": {
+      "text": "text",
+      "reference_audio": "ref_audio_path"
+    },
+    "output_formats": [
+      "wav"
+    ],
+    "environment": {
+      "python": "engines/REPLACE_ME/.venv",
+      "entry": "../../lib/engines/host.py",
+      "args": [
+        "--profile-json",
+        "{profile_json}",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}"
+      ],
+      "checkpoints": "models/tts/REPLACE_ME",
+      "ready_endpoint": "/health",
+      "ready_timeout_ms": 180000,
+      "ready_timeout_ms_source": "estimated",
+      "preload": false,
+      "verify": {
+        "sys_path": [
+          "engines/REPLACE_ME"
+        ],
+        "imports": [
+          {
+            "module": "REPLACE_MODULE",
+            "class": "REPLACE_CLASS",
+            "methods": [
+              "REPLACE_METHOD"
+            ],
+            "init_params": []
+          }
+        ]
+      },
+      "cwd": "."
+    }
+  },
+  "invocation": {
+    "kind": "python",
+    "python": {
+      "module": "REPLACE_MODULE",
+      "class": "REPLACE_CLASS",
+      "method": "infer",
+      "init_args": {},
+      "bind": {
+        "text": "text",
+        "ref_audio": "REPLACE_REF_AUDIO_PARAM",
+        "output_path": "REPLACE_OUTPUT_PARAM"
+      },
+      "returns": "file",
+      "seed": "none",
+      "parameters": [
+        {
+          "name": "REPLACE_LOAD_PARAM",
+          "type": "boolean",
+          "phase": "load",
+          "tier": "advanced",
+          "group": "runtime",
+          "order": 10,
+          "label": {
+            "en": "REPLACE",
+            "zh": "替换"
+          },
+          "help": {
+            "en": "Set at engine construction time. Changing it requires restarting the engine process.",
+            "zh": "构造引擎时生效。改它要重启引擎进程。"
+          }
+        },
+        {
+          "name": "REPLACE_CALL_PARAM",
+          "type": "number",
+          "phase": "call",
+          "tier": "common",
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "label": {
+            "en": "REPLACE",
+            "zh": "替换"
+          },
+          "help": {
+            "en": "REPLACE",
+            "zh": "替换"
+          }
+        }
+      ]
+    }
+  },
   "_comment_读我": [
     "这是一张**模板**。照它填，填完删掉所有下划线开头的键（它们只是注释）。",
     "⛔ 别直接复制这份文件的名字去建目录 —— 目录名就是引擎 id，",
@@ -13,34 +160,17 @@
     "   · 查状态 → node tools/dev/check-engine-env.cjs --engine <id>（加 --deep 真去 import）。",
     "📖 字段逐条说明见 engines/_TEMPLATE/README.md。"
   ],
-
-  "contract_version": 2,
-  "id": "REPLACE_ME",
-  "label": "REPLACE ME（界面上显示的名字）",
-
   "_comment_upstream": [
     "⛔ upstream.commit 是**必填**的。平台不会替你拉最新版顶上：",
     "   那样装出来的版本跟开发时用的可能不是同一个，而症状不会是报错，",
     "   是声音不对、或者某个参数悄悄失效（C10）。",
     "   不知道该钉哪一版就写 null 并在 upstream.commit_unknown_reason 里说明原因。"
   ],
-  "upstream": {
-    "url": "https://github.com/REPLACE/REPLACE",
-    "commit": null,
-    "commit_unknown_reason": "还没定：先跑通再钉（填了这行 install 就会拒绝执行）",
-    "license": "REPLACE（上游许可证原文放 THIRD_PARTY_LICENSES/）"
-  },
-  "local_changes": "LOCAL-CHANGES.md",
-
   "_comment_install": [
     "建环境用上游自己的配方，argv 形式（不是一整行命令 —— 带空格的路径会被拆错）。",
     "uv sync / poetry install / pip install -r requirements.txt 都行。",
     "不写这一段 = 这台引擎不用平台代装（例如源码早就在仓库里的历史引擎）。"
   ],
-  "install": {
-    "env_command": ["uv", "sync"]
-  },
-
   "_comment_models": [
     "底模放哪、哪几个文件算齐、怎么取回 —— 三件事都在这一段。",
     "⭐ runtime.checkpoints（下面 runtime 段里）说的是「放哪」，",
@@ -50,17 +180,6 @@
     "⛔ 本文件里不许出现任何具体下载器名 —— 命令是名片写的，平台只填占位符。",
     "⚠ 底模不要放进 engines/<id>/ 下面（那里是源码 + 自己的 .venv）。"
   ],
-  "models": {
-    "required": ["REPLACE_ME.bin"],
-    "hint": "去哪儿下、多大、需不需要先在网页上点同意 —— 写在这里，界面上会显示。",
-    "source": {
-      "url": "https://huggingface.co/REPLACE/REPLACE",
-      "license_gate": false,
-      "command": ["REPLACE", "download", "--repo", "REPLACE/REPLACE", "--local-dir", "{checkpoints}"],
-      "cwd": "engine_dir"
-    }
-  },
-
   "_comment_weights": [
     "这台引擎有几个模型位（一份权重 = 一个位）。界面上会按这里长出几个下拉。",
     "⛔ 不写 = 一个下拉都不长（不是默认给你两个）。",
@@ -77,29 +196,18 @@
     "   写两个 launch 位 ⇒ 第一次合成时抛 ENGINE_TOO_MANY_LAUNCH_SLOTS。",
     "   没有模型位的引擎（单一写死底模、不支持微调）可以不写这一段。"
   ],
-  "weights": [
-    { "name": "model", "label": "Model", "applies_at": "launch" }
-  ],
-
   "_comment_预算": [
     "max_chars  一条请求最多几个字，平台据此切段。",
     "timeout_ms 等这台引擎起多久（含加载模型的时间）。",
     "⛔ *_source 必须写：measured=实测得来 / estimated=估的。",
     "   平台用真实读数当权威，manifest 里的值只当读数来源的说明。"
   ],
-  "max_chars": 50,
-  "max_chars_source": "estimated",
-  "timeout_ms": 180000,
-  "timeout_ms_source": "estimated",
-
   "_comment_地址": [
     "default_base_url 是这台引擎自己该监听哪儿。",
     "⛔ 名片没写也没关系：平台会分配一个端口并在启动时告诉引擎。",
     "   （A3 之后这两个键在退休路上，今天仍是活键。）",
     "base_url_env 指定用哪个环境变量临时改地址 —— 变量名由你定，平台不认识任何具体变量名。"
   ],
-  "base_url_env": "REPLACE_BASE_URL",
-
   "_comment_capabilities": [
     "requires_reference_audio  true ⇒ 每次请求必须带参考音频，宿主会 400 拦下没带的。",
     "                         且 call.bind 必须有 ref_audio 槽位接它。",
@@ -107,14 +215,6 @@
     "streaming               这台引擎自己支持流式吗（和平台的流式 broker 是两件事）。",
     "supports_finetune       true ⇒ 界面上才长出 Tune 页签。⛔ 别为了让页签出现而写 true。"
   ],
-  "capabilities": {
-    "requires_reference_audio": true,
-    "reference_clip_seconds": null,
-    "streaming": false,
-    "output_sample_rate": 22050,
-    "supports_finetune": false
-  },
-
   "_comment_runtime": [
     "python   这台引擎自己的解释器，**相对项目根**。⛔ 一台引擎一套（与平台 venv 隔离，C12）。",
     "entry    进程入口，**相对本文件所在目录**。走通用宿主就填 ../../lib/engines/host.py。",
@@ -130,29 +230,6 @@
     "verify    平台的第二道校验用：拿你这台引擎的解释器去 import 下面点名的模块/类/方法。",
     "          ⚠ imports 的键只有 module / class / methods / init_params 四个，写别的当场报错。"
   ],
-  "runtime": {
-    "python": "engines/REPLACE_ME/.venv",
-    "entry": "../../lib/engines/host.py",
-    "args": ["--profile-json", "{profile_json}", "--host", "{host}", "--port", "{port}"],
-    "cwd": ".",
-    "checkpoints": "models/tts/REPLACE_ME",
-    "ready_endpoint": "/health",
-    "ready_timeout_ms": 180000,
-    "ready_timeout_ms_source": "estimated",
-    "preload": false,
-    "verify": {
-      "sys_path": ["engines/REPLACE_ME"],
-      "imports": [
-        {
-          "module": "REPLACE_MODULE",
-          "class": "REPLACE_CLASS",
-          "methods": ["REPLACE_METHOD"],
-          "init_params": []
-        }
-      ]
-    }
-  },
-
   "_comment_call": [
     "『怎么调这台引擎的 Python 类』—— 通用宿主靠它反射调用，**不改你上游一行代码**。",
     "",
@@ -178,21 +255,6 @@
     "",
     "⚠ python 与 cli 两种形态的 bind 槽位里写的东西不同：一个是方法参数名，一个是命令行开关。"
   ],
-  "call": {
-    "kind": "python",
-    "module": "REPLACE_MODULE",
-    "class": "REPLACE_CLASS",
-    "init_args": {},
-    "method": "infer",
-    "bind": {
-      "text": "text",
-      "ref_audio": "REPLACE_REF_AUDIO_PARAM",
-      "output_path": "REPLACE_OUTPUT_PARAM"
-    },
-    "returns": "file",
-    "seed": "none"
-  },
-
   "_comment_parameters": [
     "⭐ 界面上长什么样**全部由这一段决定**。一份声明，平台派生出 param_keys /",
     "   payload_keys / params.load_time / params.call_time / params.schema 五份视图。",
@@ -220,33 +282,6 @@
     "⚠ 平台自己的键（format/split/concat/speed…）**不要**写进这一段，",
     "   它们不属于任何一台引擎，界面上另有位置。"
   ],
-  "parameters": [
-    {
-      "name": "REPLACE_LOAD_PARAM",
-      "type": "boolean",
-      "phase": "load",
-      "tier": "advanced",
-      "group": "runtime",
-      "order": 10,
-      "label": { "en": "REPLACE", "zh": "替换" },
-      "help": {
-        "en": "Set at engine construction time. Changing it requires restarting the engine process.",
-        "zh": "构造引擎时生效。改它要重启引擎进程。"
-      }
-    },
-    {
-      "name": "REPLACE_CALL_PARAM",
-      "type": "number",
-      "phase": "call",
-      "tier": "common",
-      "min": 0,
-      "max": 2,
-      "step": 0.05,
-      "label": { "en": "REPLACE", "zh": "替换" },
-      "help": { "en": "REPLACE", "zh": "替换" }
-    }
-  ],
-
   "_comment_maps": [
     "平台的词 → 这台引擎的键名。没映射的词 = 这台引擎没这个概念，不发。",
     "平台词表固定这 10 个（加引擎不加词，只是给它们换一个说法）：",
@@ -256,11 +291,6 @@
     "⚠ 这里的键名不要和 parameters 里的名字搞混：",
     "   maps 管『平台核心输入』，parameters 管『引擎私有旋钮』。"
   ],
-  "maps": {
-    "text": "text",
-    "reference_audio": "ref_audio_path"
-  },
-
   "_comment_output_formats": [
     "这台引擎能出什么格式（能力白名单），不写 = 只出 wav（安全的默认）。",
     "⚠ 转码是平台上层的事（ffmpeg），引擎只出它会的格式。",
@@ -269,6 +299,5 @@
     "要把选中的格式交给引擎，cli 形态在 call.args 里声明一项 role 为 output_format，",
     "  例如 format 项的 flag 写 --format；该名字还要进 params.call_time，host 才收得到。",
     "允许值可由扫描这个开关的 choices 带出，不必手抄一份。"
-  ],
-  "output_formats": ["wav"]
+  ]
 }

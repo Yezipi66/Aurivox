@@ -154,7 +154,7 @@ test('换到没名片的引擎：上一台的 runtime 与 call 整段清掉', as
   let manifest = { ...PREV_MANIFEST }
   const changes = []
   root.render(React.createElement(EngineIdentity, {
-    manifest,
+    manifest, dirs: DIRS,
     onChange: (m) => { manifest = m; changes.push(m) },
     facts: { env: true, models: true },
   }))
@@ -186,7 +186,7 @@ test('换到没名片的引擎：label 也换成新的', async () => {
   const { dom, container, root } = mount()
   let manifest = { ...PREV_MANIFEST }
   root.render(React.createElement(EngineIdentity, {
-    manifest,
+    manifest, dirs: DIRS,
     onChange: (m) => { manifest = m },
     facts: { env: true, models: true },
   }))
@@ -209,7 +209,7 @@ test('换到磁盘上有名片的引擎：先显示「读取参数」，点了�
   let manifest = { id: 'spark-tts', label: 'spark-tts', contract_version: 2 }
   const changes = []
   root.render(React.createElement(EngineIdentity, {
-    manifest,
+    manifest, dirs: DIRS,
     onChange: (m) => { manifest = m; changes.push(m) },
     facts: { env: true, models: true },
   }))
@@ -240,19 +240,22 @@ test('换到磁盘上有名片的引擎：先显示「读取参数」，点了�
   assert.strictEqual(manifest.id, 'cosyvoice2', '磁盘上那张名片没灌进来')
   assert.strictEqual(manifest.runtime.python, 'engines/cosyvoice2/.venv',
     '磁盘上那张名片的 runtime 没灌进来')
-  // 读进来之后回到「扫描参数」，路径出现，保存可用。
-  assert.ok(buttonByText(container, 'Scan parameters'), '读取成功后应当回到「扫描参数」')
+  // 读进来之后身份条上不再有动作按钮：扫描参数移到中栏「调用方式」旁边
+  //   （见 RequiredFields），那一格的可用条件由页面层判，不在这里。
+  assert.ok(!buttonByText(container, 'Scan parameters'),
+    '读取成功后身份条不该再留一个「扫描参数」：它已经挪到「调用方式」旁边')
+  assert.ok(!buttonByText(container, 'Create manifest'), '有名片了就不该再出现「新建名片」')
   const pathEl = container.querySelector('.wz-identity-path')
   assert.ok(pathEl && /engines\/cosyvoice2\/manifest\.json/.test(pathEl.textContent), '读取成功后路径应当出现')
   assert.strictEqual(buttonByText(container, 'Save').disabled, false, '读取成功后「保存」应当可点')
 })
 
-test('没名片的引擎：显示「扫描参数」，没扫过之前「保存」不可点', async () => {
+test('没名片的引擎：显示「新建名片」，没扫过也能保存', async () => {
   stubFetch(DIRS)
   const { dom, container, root } = mount()
   let manifest = { ...PREV_MANIFEST }
   root.render(React.createElement(EngineIdentity, {
-    manifest,
+    manifest, dirs: DIRS,
     onChange: (m) => { manifest = m },
     facts: { env: true, models: true },
     onScan: () => {}, scanBusy: false, scanned: false,
@@ -266,8 +269,13 @@ test('没名片的引擎：显示「扫描参数」，没扫过之前「保存�
   sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
   await settle()
 
-  assert.ok(buttonByText(container, 'Scan parameters'), '没名片的引擎应当显示「扫描参数」')
+  // 没有名片时这一格是「新建名片」：扫描结果直接成为这张新名片的内容，
+  //   形态也在同一次扫描里定下来。没有名片就没有「扫描参数」这一说。
+  assert.ok(buttonByText(container, 'Create manifest'), '没名片的引擎应当显示「新建名片」')
+  assert.ok(!buttonByText(container, 'Scan parameters'),
+    '还没名片时不该有「扫描参数」：扫了没有地方写回')
   assert.ok(!buttonByText(container, 'Read parameters'), '没名片的引擎不该有「读取参数」')
-  assert.strictEqual(buttonByText(container, 'Save').disabled, true, '没扫过的新名片不该能保存')
+  assert.strictEqual(buttonByText(container, 'Save').disabled, false,
+    '名片可以只写一半，扫描不是保存的前提')
   assert.ok(!buttonByText(container, 'Save manifest'), '按钮叫「保存」，不叫「存盘」')
 })

@@ -7,6 +7,7 @@ import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
 import Select from '../../../web/src/components/common/Select'
+import { BOX, BOX_GAP } from './boxStyle'
 
 // 向导第 2 步：给这台引擎装 Python 依赖。
 // 本机检测、装法与将要执行的命令都来自 /wizard/env 的计划（execute:false）；
@@ -115,7 +116,7 @@ function installDecision (suggestion, answered) {
 
 export {
   installDecision, TorchUpgradeDialog, PackageGroups, SpecPill, VersionSelect,
-  declaredVersion, splitSpec, finalSpec,
+  declaredVersion, splitSpec, finalSpec, choiceLines,
 }
 
 export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) {
@@ -139,6 +140,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
 
   const [plan, setPlan] = React.useState(saved?.depsPlan || null)
   const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
+  // 本机信息的展开态：收起是一枚 pill，点开是 card（同 9886 naming-note）。
+  const [showMachine, setShowMachine] = React.useState(false)
   const [backend, setBackend] = React.useState(saved?.backend || null)
   // 只恢复成功的结果：旧的失败文案已经在会话段里存过一次，读的时候也要挡掉，
   //   否则刷新之后看到的还是上一次执行给出的结论。
@@ -450,213 +453,294 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
   return (
     <div className="wz-stack">
 
-      {/* 本机检测结果与推荐的安装后端。 */}
-      {hw && (
-        <div className="msg msg-info">
-          <b>{t('This machine', '本机')}：</b>
-          {[
-            // CPU、内存、显卡同出一处（lib/system/hardware.js），
-            // 缺哪一项就跳过哪一项，某项取不到不等于整机信息不可用。
-            hw.cpu && hw.cpu.model
-              ? hw.cpu.model + (hw.cpu.threads
-                ? ` · ${hw.cpu.threads}${t(' threads', ' 线程')}` : '')
-              : null,
-            hw.memory && hw.memory.total_gb
-              ? `${t('Memory', '内存')} ${hw.memory.total_gb} GB`
-              : null,
-            hw.gpus && hw.gpus.length
-              ? hw.gpus.map((g) => g.name).join('；')
-              : t('no recognisable GPU', '没有可识别的 GPU'),
-          ].filter(Boolean).join(' ｜ ')}
-          {' → '}{t('recommended', '推荐')}{' '}
-          <b>{backendOf(hw.options, hw.recommended)}</b>
-          {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
-          {hw.caveat && <div className="field-hint">⚠ {t(hw.caveat, hw.caveatZh)}</div>}
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('Several GB are downloaded and it takes a while. If it stops midway, '
-              + 'run this step again — the download continues from the breakpoint '
-              + 'and already-downloaded wheels are kept. If cancelled, the '
-              + 'environment is left partial: the next run removes it and rebuilds '
-              + 'it, and the downloaded wheels are still reused.',
-              '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重新下载。若中途取消，环境会停在不完整状态：'
-              + '下次执行会先删除它再重建，已下载的依赖包仍会复用。')}
-          </p>
-        </div>
-      )}
+      {/* 安装配置：一张框装齐所有配置项（本机提示 + 后端 + 显卡包 + 其他包 + Python）。
+          安装命令单独一张框，因为它是「要执行什么」，和「配了什么」是两件事。 */}
+      {((hw && hw.options) || (d && (d.torch.count > 0 || d.normal.count > 0))
+        || (preview && preview.ok)) && (
+        <div className="wz-stack">
 
-      {/* 与显卡相关的依赖包，三态：匹配、不匹配、无法判断。 */}
-      {d && d.torch.count > 0 && (
-        <div className="preflight" style={{ marginTop: 0 }}>
-          <div className="layer-label">
-            {t('GPU-related packages', '与 GPU 相关的包')}
-          </div>
-          {/* t() 只接两个参数（web/src/lib/i18n.jsx 的 LangProvider 里 t = (en, zh)），
-               传三个 ⇒ 第二段英文被当中文返回。 */}
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('These packages only run on this kind of graphics card. '
-              + 'Other cards need a different Torch build.',
-              '这些包仅适用于此类显卡。更换显卡后需要安装其他版本的 Torch。')}
-          </p>
-          {d.torch.packages.map((r) => {
-            const V = VERDICT[r.verdict] || VERDICT.unknown
-            const off = isSkipped(r.spec)
-            const name = pkgName(r.spec)
-            // 整行是「切换是否安装这个包」的点击区，
-            //   所以行内的笔必须自己断掉冒泡，否则点笔等于把它设为不安装。
-            const rowClick = (e) => {
-              if (e && e.stopPropagation) e.stopPropagation()
-              if (canSkip) toggleSkip(r.spec)
-            }
-            const rowKey = (e) => {
-              if (!canSkip) return
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                toggleSkip(r.spec)
-              }
-            }
-            // pill 上显示的那条 spec：后端算好的最终那条。
-            const spec = finalSpec(preview && preview.specs, name, r.spec)
-            return (
-              <div key={r.name} className="pf-row"
-                role={canSkip ? 'button' : undefined}
-                tabIndex={canSkip ? 0 : undefined}
-                title={canSkip ? t('Click to toggle whether this package is installed',
-                  '点击切换此包的安装状态') : undefined}
-                onClick={canSkip ? rowClick : undefined}
-                onKeyDown={canSkip ? rowKey : undefined}
-                style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
-                <span className="badge badge-sym">{off ? '–' : V.mark}</span>
-                <span className="pf-val">
-                  <SpecPill
-                    name={name}
-                    spec={spec}
-                    value={(versionOverrides || {})[name] || ''}
-                    onChange={(v) => setVersion(name, v)}
-                    t={t}
-                    disabled={busy}
-                    editable={!off && canSkip}
-                  />
-                </span>
-                <span className="field-hint" style={{ marginTop: 0 }}>
-                  {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
-                </span>
-                {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* 安装后端：全部选项都列出来，推荐值只是默认值。 */}
-      {hw && hw.options && (
-        <div className="field">
-          <label className="field-label" id="wz-backend-label">
-            {t('Install with', '安装命令')}
-          </label>
-          <Select id="wz-backend" className="control" aria-labelledby="wz-backend-label"
-            value={backend || ''} onChange={(e) => setBackend(e.target.value)}>
-            {hw.options.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-                {o.key === hw.recommended
-                  ? (lang === 'zh' ? '（推荐）' : ' (recommended)') : ''}
-                {' — '}{t(o.for, o.forZh)}
-              </option>
-            ))}
-          </Select>
-          <p className="field-hint">
-            {t('This is a recommendation. Every option is listed below; if the '
-              + 'wheel pinned upstream cannot use this GPU, pick another one, '
-              + 'or install Torch afterwards.',
-              '此处为推荐值，全部选项列于下方。若上游锁定的 wheel 与本机显卡'
-              + '不匹配，可改选其他后端，或自行安装 Torch。')}
-          </p>
-        </div>
-      )}
-
-      {preview && preview.ok === false && preview.code === 'BACKEND_NO_INDEX' && (
-        <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
-      )}
-
-      {/* Python 版本：默认按引擎声明，人能改。
-          声明只说明「这一族能跑」，不保证依赖在每一档都有 wheel：
-          spacy 这类钉死版本的包就没有 3.13 的轮子，而声明可能写着 <3.14。 */}
-      {preview && preview.ok && (
-        <div className="field">
-          <label className="field-label" id="wz-pyver-label">
-            {t('Python version', 'Python 版本')}
-          </label>
-          <Select id="wz-pyver" className="control" aria-labelledby="wz-pyver-label"
-            value={pythonVersion || preview.python_version || ''}
-            onChange={(e) => setPythonVersion(e.target.value)}>
-            {(pyOptions).map((v) => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </Select>
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {preview.python_version_declared
-              ? t(`The engine declares ${preview.python_version_declared}. A declaration `
-                + 'means upstream tested that range, not that every dependency ships a wheel '
-                + 'for each version.',
-              `引擎声明的是 ${preview.python_version_declared}。声明只说明上游在这一族里测过，`
-                + '不保证每个依赖在每一档都有 wheel。')
-              : t('The engine does not declare a Python version; the platform base version is used.',
-                '引擎没有声明 Python 版本，按平台基座版本。')}
-          </p>
-        </div>
-      )}
-
-      {/* 将要执行的命令来自 preview（execute:false 的计划），不是 plan。 */}
-      {preview && preview.ok && (preview.env_command || []).length > 0 && (
-        <div className="field">
-          <label className="field-label" htmlFor="wz-cmd">
-            {t('Command to run', '将要执行的命令')}
-          </label>
-          <div className="rc-cmd" id="wz-cmd">
-            <div className="rc-cmd-body">
-              <code>{(preview.env_command || []).join(' ')}</code>
+          {/* 框一：安装配置。 */}
+          <div className="section">
+            <div className="section-hdr">
+              <h2>{t('Installation settings', '安装配置')}</h2>
+              {/* 本机信息：收起是 pill，点开是 card（同 9886 naming-note）。 */}
+              {hw && hw.options && (
+                <button type="button" className={`naming-note-pill${showMachine ? '' : ' nn-in-bar'}`}
+                  style={{ margin: 0 }}
+                  onClick={() => setShowMachine((v) => !v)}>
+                  <span className="nn-i">i</span>
+                  {t('This machine', '本机')} · {backendOf(hw.options, hw.recommended)}
+                </button>
+              )}
             </div>
-          </div>
-          {preview.whatToDo && (
-            <p className="field-hint" style={{ marginTop: 0 }}>
-              {t(preview.whatToDo, preview.whatToDoZh)}
-            </p>
-          )}
-          {preview.stepsRun && preview.stepsRun.length > 0 && (
-            <div className="preflight" style={{ marginTop: 6 }}>
-              {preview.stepsRun.map((s) => (
-                <div key={s.n} className="pf-row">
-                  <span className="badge badge-sym">{s.ok ? '✓' : '✗'}</span>
-                  <span className="pf-val pf-val-grow"><code>{s.argv.join(' ')}</code></span>
-                  <span className={`pf-warn-end ${s.ok ? 'pf-status-ok' : 'pf-status-fail'}`}>
-                    {s.ok ? t('done', '完成') : t('failed', '失败')}
-                  </span>
+            <div className="section-body">
+
+              {hw && hw.options && showMachine && (
+                <div className="msg msg-info" style={{ marginTop: 0 }}>
+                  <b>{t('This machine', '本机')}：</b>
+                  {[
+                    hw.cpu && hw.cpu.model
+                      ? hw.cpu.model + (hw.cpu.threads ? ` · ${hw.cpu.threads}${t(' threads', ' 线程')}` : '')
+                      : null,
+                    hw.memory && hw.memory.total_gb ? `${t('Memory', '内存')} ${hw.memory.total_gb} GB` : null,
+                    hw.gpus && hw.gpus.length
+                      ? hw.gpus.map((g) => g.name).join('；')
+                      : t('no recognisable GPU', '没有可识别的 GPU'),
+                  ].filter(Boolean).join(' ｜ ')}
+                  {' → '}{t('recommended', '推荐')} <b>{backendOf(hw.options, hw.recommended)}</b>
+                  {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
+                  {hw.caveat && <div className="field-hint">⚠ {t(hw.caveat, hw.caveatZh)}</div>}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+              )}
 
-      {/* 锁文件的后端与本机不一致，主命令之后还要再装一次 torch。
-          主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
-          这一段显示的是装 torch 那一步，不重复主命令。
-          数据来自 preview（进入页面时取的 execute:false 计划），
-          不是 plan（/wizard/deps 从 GitHub 拉 lock）。 */}
-      {preview && preview.alternative && (
-        <div className="field">
-          <label className="field-label" htmlFor="wz-alt">
-            {t('Then install Torch for this machine', '然后安装本机适用的 Torch')}
-          </label>
-          <div className="rc-cmd" id="wz-alt">
-            <div className="rc-cmd-body">
-              <code>{preview.alternative.then.join(' ')}</code>
+              {/* 第一段框：Torch 后端与它决定的那批显卡包。
+                  这两件事是同一个选择的两面（选后端 ⇒ 装哪一档 Torch 与配套包），
+                  所以合在一个框里；框只表达归属，不改变控件本身。 */}
+              {(hw && hw.options) || (d && d.torch.count > 0) ? (
+                <div style={{ ...BOX, marginTop: 0 }}>
+                  {hw && hw.options && (
+                    <div className="field" style={{ margin: 0 }}>
+                      <label className="field-label" id="wz-backend-label">
+                        {t('Torch backend', 'Torch 后端')}
+                      </label>
+                      <Select id="wz-backend" className="control" aria-labelledby="wz-backend-label"
+                        value={backend || ''} onChange={(e) => setBackend(e.target.value)}>
+                        {hw.options.map((o) => (
+                          <option key={o.key} value={o.key}>
+                            {o.label}
+                            {o.key === hw.recommended
+                              ? (lang === 'zh' ? '（推荐）' : ' (recommended)') : ''}
+                            {' \u2014 '}{t(o.for, o.forZh)}
+                          </option>
+                        ))}
+                      </Select>
+                      <p className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
+                        {t('Which Torch build to install. This is a recommendation; every option '
+                          + 'is listed above. If the wheel pinned upstream cannot use this GPU, '
+                          + 'pick another backend here.',
+                          '这里选的是装哪一档 Torch，不是整条安装命令。推荐值已列出，'
+                          + '若上游锁定的 wheel 与本机显卡不匹配，可在此改选后端。')}
+                      </p>
+                    </div>
+                  )}
+
+                  {d && d.torch.count > 0 && (
+                    <div style={{ display: 'grid', gap: 7,
+                      marginTop: hw && hw.options ? 'var(--sp-8)' : 0 }}>
+                      <p className="field-hint" style={{ marginTop: 0 }}>
+                        {t('These packages only run on this kind of graphics card. '
+                          + 'Other cards need a different Torch build.',
+                          '这些包仅适用于此类显卡。更换显卡后需要安装其他版本的 Torch。')}
+                      </p>
+                      {d.torch.packages.map((r) => {
+                        const V = VERDICT[r.verdict] || VERDICT.unknown
+                        const off = isSkipped(r.spec)
+                        const name = pkgName(r.spec)
+                        // 整行是「切换是否安装这个包」的点击区，
+                        //   所以行内的笔必须自己断掉冒泡，否则点笔等于把它设为不安装。
+                        const rowClick = (e) => {
+                          if (e && e.stopPropagation) e.stopPropagation()
+                          if (canSkip) toggleSkip(r.spec)
+                        }
+                        const rowKey = (e) => {
+                          if (!canSkip) return
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            toggleSkip(r.spec)
+                          }
+                        }
+                        // pill 上显示的那条 spec：后端算好的最终那条。
+                        const spec = finalSpec(preview && preview.specs, name, r.spec)
+                        return (
+                          <div key={r.name} className="pf-row"
+                            role={canSkip ? 'button' : undefined}
+                            tabIndex={canSkip ? 0 : undefined}
+                            title={canSkip ? t('Click to toggle whether this package is installed',
+                              '点击切换此包的安装状态') : undefined}
+                            onClick={canSkip ? rowClick : undefined}
+                            onKeyDown={canSkip ? rowKey : undefined}
+                            style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
+                            <span className="badge badge-sym">{off ? '–' : V.mark}</span>
+                            <span className="pf-val">
+                              <SpecPill
+                                name={name}
+                                spec={spec}
+                                value={(versionOverrides || {})[name] || ''}
+                                onChange={(v) => setVersion(name, v)}
+                                t={t}
+                                disabled={busy}
+                                editable={!off && canSkip}
+                              />
+                            </span>
+                            <span className="field-hint" style={{ marginTop: 0 }}>
+                              {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
+                            </span>
+                            {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {preview && preview.ok === false && preview.code === 'BACKEND_NO_INDEX' && (
+                <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
+              )}
+
+              {/* 第二段框：其他包。与上面那段同属「安装配置」，但装法不同
+                  （不含显卡相关包，所有机器同一条命令），用框分开而不是靠行距。 */}
+              {d && d.normal.count > 0 && (
+                <div style={{ ...BOX, marginTop: BOX_GAP }}>
+                  <div className="wz-subhead wz-collapse-hdr" role="button" tabIndex={0}
+                    aria-expanded={showNormal}
+                    style={{ margin: 0 }}
+                    onClick={() => setShowNormal(!showNormal)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setShowNormal(!showNormal)
+                      }
+                    }}>
+                    <span>
+                      {t(`Other packages (${d.normal.count})`, `其他包（${d.normal.count} 个）`)}
+                      {d.normal.packages.some(isSkipped)
+                        ? t(`, ${d.normal.packages.filter(isSkipped).length} skipped`,
+                          `，${d.normal.packages.filter(isSkipped).length} 个不安装`)
+                        : ''}
+                    </span>
+                    <span className="wz-collapse-action">
+                      {showNormal ? t('Collapse', '收起') : t('Expand', '展开')}
+                    </span>
+                  </div>
+                  {showNormal && (
+                    <div style={{ marginTop: 'var(--sp-8)' }}>
+                      <p className="field-hint" style={{ marginTop: 0 }}>
+                        {t('No graphics-card-specific packages. The same command'
+                          + ' works on every machine.',
+                          '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
+                      </p>
+                      <PackageGroups packages={d.normal.packages} isSkipped={isSkipped}
+                        onToggle={canSkip ? toggleSkip : null}
+                        versionOverrides={versionOverrides}
+                        onVersion={canSkip ? setVersion : null}
+                        specs={preview && preview.specs}
+                        t={t}
+                        disabled={busy} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Python 版本：同属配置。 */}
+              {preview && preview.ok && (
+                <div className="field" style={{ margin: 0 }}>
+                  <label className="field-label" id="wz-pyver-label">
+                    {t('Python version', 'Python 版本')}
+                  </label>
+                  <Select id="wz-pyver" className="control" aria-labelledby="wz-pyver-label"
+                    value={pythonVersion || preview.python_version || ''}
+                    onChange={(e) => setPythonVersion(e.target.value)}>
+                    {pyOptions.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </Select>
+                  <p className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
+                    {preview.python_version_declared
+                      ? t(`The engine declares ${preview.python_version_declared}. A declaration `
+                        + 'means upstream tested that range, not that every dependency ships a wheel '
+                        + 'for each version.',
+                        `引擎声明的是 ${preview.python_version_declared}。声明只说明上游在这一族里测过，`
+                        + '不保证每个依赖在每一档都有 wheel。')
+                      : t('The engine does not declare a Python version; the platform base version is used.',
+                        '引擎没有声明 Python 版本，按平台基座版本。')}
+                  </p>
+                </div>
+              )}
+
             </div>
           </div>
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t(preview.alternative.why, preview.alternative.whyZh)}
-          </p>
+
+          {/* 框二：安装命令。展示「安装会执行的核心命令」（创建环境 / 装依赖 / 装 Torch），
+              每步带一句注释；下面是真跑时的逐条结果，再下面是总览与提示。
+              老引擎没有 steps 时回退到 env_command 单条。 */}
+          {preview && preview.ok
+            && ((preview.steps || []).length > 0 || (preview.env_command || []).length > 0) && (
+            <div className="section">
+              <div className="section-hdr">
+                <h2>{t('Installation command', '安装命令')}</h2>
+              </div>
+              <div className="section-body">
+                <div className="rc-cmd" id="wz-cmd">
+                  {((preview.steps && preview.steps.length)
+                    ? preview.steps
+                    : [{ argv: preview.env_command || [] }]
+                  ).map((st, i) => {
+                    const argv = st.argv || []
+                    // 装依赖那步若带 --excludes（排除了包，torch 通常单独装），注释要如实说「除 X 以外」。
+                    const excluded = (preview.choices && preview.choices.excluded) || []
+                    const isInstall = argv.includes('--excludes') || argv.includes('-r')
+                    const whyZh = (isInstall && excluded.length)
+                      ? t(`Install everything except ${excluded.join(', ')} from the upstream lock file.`,
+                        `照上游依赖清单安装除${excluded.join('、')}以外的包。`)
+                      : (st.whyZh || st.why || '')
+                    const whyEn = (isInstall && excluded.length)
+                      ? t(`Install everything except ${excluded.join(', ')} from the upstream lock file.`,
+                        `照上游依赖清单安装除${excluded.join('、')}以外的包。`)
+                      : (st.why || st.whyZh || '')
+                    return (
+                      <React.Fragment key={i}>
+                        <div className="rc-cmd-body" style={{ paddingTop: 'var(--sp-4)', paddingBottom: 'var(--sp-4)' }}>
+                          {whyZh && <div style={{ color: 'var(--muted)' }}># {lang === 'zh' ? whyZh : whyEn}</div>}
+                          <code>{(st.argv || []).join(' ')}</code>
+                        </div>
+                      </React.Fragment>
+                    )
+                  })}
+                </div>
+                {preview.stepsRun && preview.stepsRun.length > 0 && (
+                  <div className="preflight" style={{ marginTop: 'var(--sp-6)' }}>
+                    {preview.stepsRun.map((s) => (
+                      <div key={s.n} className="pf-row">
+                        <span className="badge badge-sym">{s.ok ? '\u2713' : '\u2717'}</span>
+                        <span className="pf-val pf-val-grow"><code>{s.argv.join(' ')}</code></span>
+                        <span className={`pf-warn-end ${s.ok ? 'pf-status-ok' : 'pf-status-fail'}`}>
+                          {s.ok ? t('done', '完成') : t('failed', '失败')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* 总览 + 提示：与命令分开，单独一块，间距收紧。 */}
+                <div style={{ marginTop: 'var(--sp-8)' }}>
+                  {(() => {
+                    const lines = choiceLines(preview, hw, backend, t, pythonVersion)
+                    const what = preview.whatToDo ? t(preview.whatToDo, preview.whatToDoZh) : ''
+                    const dl = t('Several GB are downloaded and it takes a while. If it stops midway, '
+                      + 'run this step again \u2014 the download continues from the breakpoint '
+                      + 'and already-downloaded wheels are kept. If cancelled, the '
+                      + 'environment is left partial: the next run removes it and rebuilds '
+                      + 'it, and the downloaded wheels are still reused.',
+                      '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
+                      + '已下载的依赖不会重新下载。若中途取消，环境会停在不完整状态：'
+                      + '下次执行会先删除它再重建，已下载的依赖包仍会复用。')
+                    if (!lines.length && !what) return null
+                    return (
+                      <div className="rc-cmd">
+                        <div className="rc-cmd-body">
+                          {lines.map((ln, i) => (
+                            <div key={i} style={{ fontWeight: i === 0 ? 700 : 400 }}>{ln}</div>
+                          ))}
+                          {what && <div style={{ marginTop: 'var(--sp-4)' }}>{what}</div>}
+                          <div style={{ marginTop: 'var(--sp-4)', color: 'var(--muted)' }}>{dl}</div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -712,38 +796,6 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
                 : t('The upgrade was declined. Installing continues with the upstream version, '
                   + 'which is expected to fail on this machine.',
                   '已拒绝升级。安装会继续用上游声明的版本，在本机预计会失败。')}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 与显卡无关的依赖包：只显示个数，展开后列出。 */}
-      {d && d.normal.count > 0 && (
-        <div className="collapsible">
-          <div className="collapsible-hdr" onClick={() => setShowNormal(!showNormal)}>
-            <span>{t('Other packages', '其他包')}</span>
-            <span className="field-hint" style={{ marginTop: 0 }}>
-              {showNormal ? '▾' : '▸'} {d.normal.count}
-              {d.normal.packages.some(isSkipped)
-                ? t(` (${d.normal.packages.filter(isSkipped).length} skipped)`,
-                  `（${d.normal.packages.filter(isSkipped).length} 个不安装）`)
-                : ''}
-            </span>
-          </div>
-          {showNormal && (
-            <div className="collapsible-body">
-              <p className="field-hint" style={{ marginTop: 0 }}>
-              {t('No graphics-card-specific packages. The same command'
-                + ' works on every machine.',
-                '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
-              </p>
-              <PackageGroups packages={d.normal.packages} isSkipped={isSkipped}
-                onToggle={canSkip ? toggleSkip : null}
-                versionOverrides={versionOverrides}
-                onVersion={canSkip ? setVersion : null}
-                specs={preview && preview.specs}
-                t={t}
-                disabled={busy} />
             </div>
           )}
         </div>
@@ -1310,4 +1362,30 @@ function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVer
         </p>}
     </>
   )
+}
+
+/**
+ * 「本次生效的选择」的总览行。命令里的排除走 --excludes 文件、后端走另一条追加命令，
+ * argv 上只看到固定文本，于是「点了一个包设为不安装」时命令一字不变，看上去像没生效。
+ * 这几行把后端真正采纳的选择摆出来：选了哪个后端与 Python、不安装哪些包、改了哪些版本。
+ * 数据全部来自同一份 preview.choices，不另造一份状态：界面上看到的就是执行时用的那一份。
+ * 返回字符串数组，交给命令区那个 rc-cmd 块统一排版（前半总览、后半提示）。
+ */
+function choiceLines (preview, hw, backend, t, pythonVersion) {
+  const ch = preview && preview.choices
+  if (!ch) return []
+  const excluded = Array.isArray(ch.excluded) ? ch.excluded : []
+  const overrides = ch.versionOverrides || {}
+  const backendLabel = backendOf(hw && hw.options, backend)
+  const versionPairs = Object.entries(overrides)
+  // Python 取当前选中值（与上面下拉同源），改下拉后总览立即联动，不等 preview 重拉。
+  const py = pythonVersion || preview.python_version
+  const lines = [t('Applied to this run', '本次生效的选择')]
+  if (backendLabel) lines.push(`${t('Torch backend', 'Torch 后端')}：${backendLabel}`)
+  if (py) lines.push(`Python：${py}`)
+  lines.push(`${t('Not installed', '不安装')}：${excluded.length ? excluded.join('、') : t('none', '无')}`)
+  if (versionPairs.length) {
+    lines.push(`${t('Version changed', '改动版本')}：${versionPairs.map(([n, v]) => `${n}=${v}`).join('、')}`)
+  }
+  return lines
 }

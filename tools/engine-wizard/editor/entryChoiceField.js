@@ -90,6 +90,86 @@ export function writePythonEntry (manifest, picked, engineId = '') {
   return m
 }
 
+// ---- 调用形态 ----
+
+/** 当前形态：名片写了 kind 就认它，没写按有没有 argv 判（与 EntryChoice 同一口径）。 */
+export function callKindOf (manifest) {
+  const call = (manifest && manifest.call) || {}
+  if (call.kind === 'cli' || call.kind === 'python') return call.kind
+  return Array.isArray(call.argv) && call.argv.length ? 'cli' : 'python'
+}
+
+// cli 的开关名：tts_text → --tts-text；已经带前缀的保持原样。
+function asCliFlag (raw) {
+  const v = String(raw).trim()
+  if (!v) return v
+  if (v.startsWith('-')) return v
+  return '--' + v.replace(/_/g, '-')
+}
+
+// python 的参数名：--tts_text / --tts-text → tts_text。
+//   单横线的短开关（-f）不猜：它的长名无从推断，改成 f 只会在上游报 unexpected
+//   keyword argument，留给人按引擎签名改。
+function asPyParam (raw) {
+  const v = String(raw).trim()
+  if (!v || !v.startsWith('--')) return v
+  return v.replace(/^-+/, '').replace(/-/g, '_')
+}
+
+/**
+ * 切换调用形态（call.kind）。纯函数，原名片不动。
+ *
+ * 两种形态绑的不是同一类名字：cli 绑命令行开关，python 绑方法参数名。切换时按形态
+ *   改写 bind，否则 `--tts_text` 会被当成关键字参数传给 Python 方法，报一个看不出
+ *   是形态问题的 TypeError。改写只是默认值，界面上照常可改。
+ *
+ * 形态互斥的字段一并清掉：argv 是 cli 的执行命令；module / class / method /
+ *   init_args 是 python 的构造与调用目标；text_via 是 cli 专有的 stdin 入口。
+ *
+ * @param {object} manifest
+ * @param {'cli'|'python'} kind
+ * @returns {object} 新名片
+ */
+export function withCallKind (manifest, kind) {
+  const to = kind === 'cli' ? 'cli' : 'python'
+  const m = { ...(manifest || {}) }
+  const call = { ...(m.call || {}) }
+  if (to === 'cli') {
+    call.kind = 'cli'
+    delete call.module
+    delete call.class
+    delete call.method
+    delete call.init_args
+    // 逐块产出是进程内的形状：命令行进程结束后只剩文件或字节流。
+    //   留着 generator 会让宿主走进一个 cli 不存在的分支。
+    if (call.returns === 'generator') call.returns = 'file'
+    if (!Array.isArray(call.argv) || !call.argv.length) call.argv = ['{engine_python}']
+  } else {
+    call.kind = 'python'
+    delete call.argv
+    delete call.text_via
+    // call.args 是命令行形态的参数形状声明（新版名片改用 parameters[]）。
+    //   python 形态的加载参数走 init_args，留着 args 保存时会被拒：
+    //   「call.args 在 kind="python" 下不是认得的键」。
+    delete call.args
+    // 「合成参数」那批行是按命令行开关扫出来的（训练、导出、工具脚本的开关也在里面），
+    //   python 形态用不上它们：名字与方法参数不一致，还会被当成可调旋钮。
+    //   形态换了就要按新形态重扫，不能把上一种形态的行留在表里。
+    delete m.parameters
+  }
+  if (call.bind && typeof call.bind === 'object') {
+    const next = {}
+    for (const [slot, raw] of Object.entries(call.bind)) {
+      next[slot] = typeof raw === 'string' && raw.trim()
+        ? (to === 'cli' ? asCliFlag(raw) : asPyParam(raw))
+        : raw
+    }
+    call.bind = next
+  }
+  m.call = call
+  return m
+}
+
 // ---- 子命令 ----
 //
 // 一个入口挂多个子命令时（pkg.cli synth / infer / batch），命令行上的那个词是名片的一部分。

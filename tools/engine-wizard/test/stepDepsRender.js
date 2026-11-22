@@ -63,6 +63,10 @@ function loadStepDeps () {
     if (/i18n/.test(id)) return { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) }
     if (/components\/common\/Icons/.test(id)) return loadIcons(esbuild)
     if (/\.\/(Pipeline|UndoClone|useInstallSession)/.test(id)) return { default: () => null }
+    // 分段框的样式常量：纯数据，与被测的渲染无关，给一份形状即可。
+    if (/\.\/boxStyle$/.test(id)) {
+      return { BOX: { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }, BOX_GAP: 8 }
+    }
     // 确认弹窗是主界面的共享组件，被测的是版本控件与包分组，它只要不炸就行。
     if (/components\/common\/Dialogs/.test(id)) return { ConfirmDialog: () => null }
     if (id.endsWith('components/common/Select')) return require('./_selectStub.js')

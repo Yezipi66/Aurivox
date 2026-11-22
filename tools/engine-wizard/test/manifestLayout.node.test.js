@@ -72,17 +72,29 @@ test('骨架层是 flex 行：两根边条 + 中栏，三者平级', () => {
     '.wz-stage 要是 grid，就又变成三列并排的板子了')
 })
 
-test('边条默认 32px，展开 360px：窄边 + 抽屉，不是三列 grid', () => {
+test('边条零宽不占中栏；抽屉是固定宽度滑出，不靠改宽度', () => {
   const body = ruleBody('.wz-drawer')
   assert.ok(body, 'editor.css 里没有 .wz-drawer')
-  assert.ok(/width:\s*var\(--wz-rail-w,\s*32px\)/.test(body),
-    '边条默认宽度应当是 32px（Owner 指定的窄边宽度）')
-  assert.ok(/flex-shrink:\s*0/.test(body), '边条不许被压窄')
+  // 边条不占中栏宽度：中栏永远独占整行，边条只是贴边缘的 sticky 定位锚点。
+  assert.ok(/flex:\s*0 0 0/.test(body),
+    '边条在 flex 行里零宽，不从中栏宽度里占 32px')
+  assert.ok(/width:\s*0/.test(body),
+    '边条宽度 0，可见的把手与面板都绝对定位贴在视口边缘')
 
-  const open = ruleBody('.wz-drawer.is-open')
-  assert.ok(open, 'editor.css 里没有 .wz-drawer.is-open')
-  assert.ok(/width:\s*var\(--wz-drawer-w,\s*392px\)/.test(open),
-    '抽屉展开宽度应当是 392px（生成页右栅 380 + 抽屉左右内边距 24）')
+  const panel = ruleBody('.wz-drawer-panel')
+  assert.ok(panel, 'editor.css 里没有 .wz-drawer-panel')
+  assert.ok(/width:\s*var\(--wz-drawer-w,\s*392px\)/.test(panel),
+    '面板宽度恒定在 392px（生成页右栅 380 + 抽屉左右内边距 24），收起时也不变')
+  assert.ok(/transition:\s*transform/.test(panel),
+    '展开动画只能动 transform：宽度过渡会每帧重新布局，里面整棵树跟着重排')
+  assert.doesNotMatch(panel, /transition:[^;]*width/,
+    '宽度过渡是错的：抽屉要固定宽度滑出，不是慢慢变宽')
+
+  const shut = ruleBody('.wz-drawer-left .wz-drawer-panel')
+  assert.ok(shut && /translateX\(-100%\)/.test(shut),
+    '收起时左抽屉整体左移出视口，只留把手（把手单独贴在视口左缘）')
+  const open = ruleBody('.wz-drawer-left.is-open .wz-drawer-panel')
+  assert.ok(open && /translateX\(0\)/.test(open), '展开时回到原位')
 })
 
 test('中栏占满剩下的宽度，内容对齐平台的大容器', () => {
@@ -126,27 +138,68 @@ test('第 4 步不套平台的紫框详情框（.node-detail）', () => {
   // 第 4 步的骨架是页面自己的三根骨头，套进去就是「拿页面骨架当卡片内容塞」：
   // 边框套边框、圆角套圆角，页面还多出一层内缩。
   //
-  // 判据：App.jsx 里 .node-detail 那一支的条件必须排除 manifest。
-  // 写法不限，但条件里一定要出现 manifest。
-  const detailBranch = app.slice(app.indexOf('{page && page !=='))
-  assert.ok(detailBranch, 'App.jsx 里找不到 .node-detail 那一支')
-  const cond = detailBranch.slice(0, detailBranch.indexOf('('))
-  assert.ok(/manifest/.test(cond),
-    '.node-detail 那一支没排除 manifest：第 4 步会被套进紫框里，'
-    + '条件应当形如 page !== \'manifest\'')
+  // .node-detail 是训练页的紫框卡片：accent 边框、14px 裸内边距、span 标题。
+  // 向导五步统一成「页面 + .section」，所以整个向导都不该再用它。
+  // 1/2/3 的步骤卡直接复用平台的三件套，不另抄一份 surface/border/radius。
+  assert.ok(app.indexOf('className="node-detail"') < 0,
+    '向导里又用上平台的 .node-detail 紫框了：那会和 4/5 步的 section 语言打架')
+  assert.ok(/<StepCard\b/.test(app),
+    '1/2/3 的步骤卡要走共享的 StepCard，不要另造一套卡片')
+  assert.ok(/className="wz-manifest-shell"/.test(app), '第 4 步要有自己的全宽外壳')
 })
 
 test('第 4 步在 App.jsx 里是单独一支，自己带外壳', () => {
-  assert.ok(/page === 'manifest' && \(/.test(app),
+  assert.ok(/mounted\('manifest'\) && \(/.test(app),
     'App.jsx 里找不到第 4 步的独立分支')
   assert.ok(/className="wz-manifest-shell"/.test(app),
     '第 4 步该有自己的外壳 .wz-manifest-shell')
   // 那一支里渲染的是 ManifestPage，不经过 fieldset。
-  const branch = app.slice(app.indexOf("page === 'manifest' && ("))
+  const branch = app.slice(app.indexOf("mounted('manifest') && ("))
   const end = branch.indexOf('</div>\n      )}')
   const head = branch.slice(0, end > 0 ? end : 800)
   assert.ok(head.includes('<ManifestPage'), '第 4 步那一支里没有渲染 ManifestPage')
   assert.ok(!head.includes('<fieldset'), '第 4 步那一支里还套着 fieldset')
+})
+
+test('五步共用同一张 StepCard，不许各自复制大框', () => {
+  // way（起因是大框写了四份）：大框只许一处定义，
+  // 其余步骤引用它。只守「只有一份」这条约束，不守框里用了哪些类名。
+  const editorFiles = fs.readdirSync(EDITOR).filter((f) => f.endsWith('.jsx'))
+  const definers = []
+  for (const f of editorFiles) {
+    const src = fs.readFileSync(path.join(EDITOR, f), 'utf8')
+    // 「定义大框」= 这个文件里写出了 .section + wz-step-card 的组合
+    if (/className="section wz-step-card"/.test(src)) definers.push(f)
+  }
+  assert.ok(definers.length === 1,
+    `大框只许一处定义，实际有 ${definers.length} 处：${definers.join(', ')}`)
+  assert.ok(definers[0] === 'StepCard.jsx',
+    `大框要定义在 StepCard.jsx，实际在 ${definers[0]}`)
+  // 其余三个宿主文件必须引用它，不许自己再写一份
+  const app = fs.readFileSync(path.join(EDITOR, 'App.jsx'), 'utf8')
+  const page = fs.readFileSync(path.join(EDITOR, 'ManifestPage.jsx'), 'utf8')
+  const verify = fs.readFileSync(path.join(EDITOR, 'StepVerify.jsx'), 'utf8')
+  for (const [name, src] of [['App', app], ['ManifestPage', page], ['StepVerify', verify]]) {
+    assert.ok(/<StepCard\b/.test(src), `${name} 要用共享的 StepCard，不许自己复制大框`)
+  }
+})
+
+test('中栏宽度不随边条变化：边条不占中栏宽度', () => {
+  // way：边条无论收展、无论挂几根，中栏宽度与位置都不变。
+  // 只守「边条不占中栏宽度」这条行为约束：边条必须是零宽的定位锚点，
+  // 可见的把手与面板靠绝对定位贴视口边缘，不参与中栏的宽度分配。
+  const css = fs.readFileSync(path.join(EDITOR, 'editor.css'), 'utf8')
+  const drawer = ruleBody('.wz-drawer')
+  assert.ok(drawer, 'editor.css 里没有 .wz-drawer')
+  assert.ok(/flex:\s*0\s+0\s+0/.test(drawer),
+    '边条要零宽（flex:0 0 0）：占宽度就会把中栏挤窄，中栏宽度不再恒定')
+  // 面板是固定宽度滑出，不靠改宽度换空间
+  const panel = ruleBody('.wz-drawer-panel')
+  assert.ok(panel, 'editor.css 里没有 .wz-drawer-panel')
+  assert.ok(/transition:\s*transform/.test(panel),
+    '面板展开动画只能动 transform：宽度过渡会每帧重排中栏')
+  assert.doesNotMatch(panel, /transition:[^;]*width/,
+    '宽度过渡是错的：抽屉要固定宽度滑出，不是慢慢变宽')
 })
 
 test('骨架层不画自己的边框与底色（不许套娃）', () => {
@@ -172,8 +225,9 @@ test('没有吸底的存盘栏：保存在中栏身份条上', () => {
 })
 
 test('三栏铺满页面：第 4 步不在 .workspace-container 里', () => {
-  const branch = app.slice(app.indexOf("{page === 'manifest' && ("))
-  const before = app.slice(0, app.indexOf("{page === 'manifest' && ("))
+  const manifestAt = app.indexOf("mounted('manifest') && (")
+  const branch = app.slice(manifestAt)
+  const before = app.slice(0, manifestAt)
   // 第 4 步那一支之前，最近打开的 workspace-container 已经关上了。
   const opens = (before.match(/className="workspace-container/g) || []).length
   const closesAfterLastOpen = before.slice(before.lastIndexOf('className="workspace-container')).includes('</div>')
@@ -196,7 +250,7 @@ test('预览可拖动改宽，也能全屏', () => {
   assert.ok(/role="separator"/.test(stage), '分隔条要是 separator，键盘能聚焦')
   assert.ok(/onPointerDown=\{onResizeStart\}/.test(stage), '分隔条要能拖')
   assert.ok(ruleBody('.wz-drawer-resizer'), 'editor.css 里没有 .wz-drawer-resizer')
-  const full = ruleBody('.wz-drawer.is-open.is-full')
+  const full = ruleBody('.wz-drawer.is-open.is-full .wz-drawer-panel')
   assert.ok(full, 'editor.css 里没有全屏规则')
   assert.ok(/position:\s*fixed/.test(full) && /inset:\s*0/.test(full), '全屏要铺满视口')
   assert.ok(!/is-wide/.test(css), '旧的「放大」那一档到不了全屏，应当去掉')
@@ -204,11 +258,11 @@ test('预览可拖动改宽，也能全屏', () => {
 
 test('预览的实际宽度由 CSS 按当前几何封顶：左抽屉后开也给中栏留 320px', () => {
   // 只在拖的那一刻用 JS 夹一次 ⇒ 先拖到最宽、再开左抽屉，中栏被压成 0px（#12 review）。
-  // 上限必须写在 CSS 里，按「骨架宽 − 左边条此刻宽 − 中栏最小宽」每帧算。
-  const cap = ruleBody('.wz-drawer-right.is-open')
-  assert.ok(cap, 'editor.css 里没有 .wz-drawer-right.is-open 的上限')
-  assert.ok(/max-width:[^;]*100%\s*-\s*var\(--wz-left-w/.test(cap),
-    '预览 max-width 要减去 --wz-left-w（左边条此刻的宽度）')
+  // 上限必须写在 CSS 里，按「视口宽 − 左边条此刻宽 − 中栏最小宽」每帧算。
+  const cap = ruleBody('.wz-drawer-right.is-open .wz-drawer-panel')
+  assert.ok(cap, 'editor.css 里没有 .wz-drawer-right.is-open .wz-drawer-panel 的上限')
+  assert.ok(/max-width:[^;]*100vw\s*-\s*var\(--wz-left-w/.test(cap),
+    '预览 max-width 要减去 --wz-left-w（左边条此刻的宽度）；面板在一条边条里，百分比指不到整页')
   assert.ok(/var\(--wz-center-min/.test(cap), '预览 max-width 要减去中栏最小宽')
   const stage = ruleBody('.wz-stage')
   assert.ok(/--wz-left-w:\s*var\(--wz-rail-w/.test(stage), '.wz-stage 上要有 --wz-left-w 收着那一档')
@@ -219,41 +273,56 @@ test('预览的实际宽度由 CSS 按当前几何封顶：左抽屉后开也给
   const open = ruleBody('.wz-stage-left-open')
   assert.ok(open && /--wz-left-w:\s*var\(--wz-drawer-w/.test(open),
     '.wz-stage-left-open 上要把 --wz-left-w 换成抽屉那一档')
-  const full = ruleBody('.wz-drawer.is-open.is-full')
+  const full = ruleBody('.wz-drawer.is-open.is-full .wz-drawer-panel')
   assert.ok(/max-width:\s*none/.test(full), '全屏不受预览上限约束')
 })
 
-test('两根边条固定在视口里，滚动时始终在眼前', () => {
+test('两根边条是页面里的柱子：sticky 跟着内容走，不是挂在视口上的浮层', () => {
+  // fixed 会把边条从页面结构里摘出去：它的参照是浏览器视口，不是页面。
+  //   症状一：top:0 让它一进来就压在顶栏与流程条上（关闭按钮、流程条第 5 个点被盖）。
+  //   症状二：页面往下滚，卡片走了、边条钉在原处，两者当场脱开。
+  // sticky 的参照是它自己在文档流里的位置：滚到顶才钉住，钉之前和卡片一起排。
   const body = ruleBody('.wz-drawer')
-  assert.ok(/position:\s*fixed/.test(body), '边条要固定在视口里')
-  assert.ok(/top:\s*0/.test(body), '边条要贴视口顶')
-  assert.ok(/height:\s*100vh/.test(body), '边条要占满视口高')
-  const left = ruleBody('.wz-drawer-left')
-  assert.ok(left && /left:\s*0/.test(left), '左抽屉贴左边')
-  const right = ruleBody('.wz-drawer-right')
-  assert.ok(right && /right:\s*0/.test(right), '右抽屉贴右边')
+  assert.ok(/position:\s*sticky/.test(body), '边条要在文档流里用 sticky')
+  assert.doesNotMatch(body, /position:\s*fixed/,
+    'fixed 是视口浮层：边条会脱离页面结构，压住顶栏并在滚动时与卡片脱开')
+  assert.ok(/top:\s*0/.test(body), '滚到顶时钉住')
+  assert.ok(/height:\s*calc\(100vh - var\(--wz-stage-top/.test(body),
+    '边条高度按「视口高 − 骨架起点」算：取满 100vh 会让底部超出视口，'
+    + 'sticky 的可吸附范围也被压成「骨架高 − 100vh」，滚两下就被容器顶出去')
+  assert.ok(/align-self:\s*flex-start/.test(body),
+    'sticky 元素要贴 flex 行顶部，不许被 align-items: stretch 拉成整列高')
+  // 左右各自的溢出方向交给面板：aside 自己只是 flex 行里的第一根 / 最后一根柱子。
+  const left = ruleBody('.wz-drawer-left .wz-drawer-panel')
+  assert.ok(left && /left:\s*0/.test(left), '左抽屉的面板从边条左边展开')
+  const right = ruleBody('.wz-drawer-right .wz-drawer-panel')
+  assert.ok(right && /right:\s*0/.test(right), '右抽屉的面板从边条右边展开')
 })
 
-test('左栏是浮层：展开时不再占中栏的宽度', () => {
-  // 只在收起状态留一条内边距给边条；展开时盖上来，中栏宽度与开合无关。
-  const stage = ruleBody('.wz-stage')
-  assert.ok(/padding-left:\s*var\(--wz-rail-w/.test(stage),
-    '.wz-stage 只给收起的边条留一条内边距，展开的抽屉不该再挤中栏')
-  const open = ruleBody('.wz-drawer-left.is-open')
+test('左栏展开不挤中栏：aside 零宽，抽屉是贴在视口边缘的面板', () => {
+  // 三层分工，缺一层都会退回「展开就把表单挤窄」：
+  //   .wz-drawer        flex: 0 0 0，零宽不占中栏，只是贴边缘的 sticky 定位锚点
+  //   .wz-drawer-panel  绝对定位，展开时贴视口左缘溢出到中栏之上，不参与宽度分配
+  //   .wz-stage         中栏 flex:1 独占整行，永远满宽
+  const drawer = ruleBody('.wz-drawer')
+  assert.ok(/flex:\s*0 0 0/.test(drawer),
+    'aside 零宽不占中栏，开不开都不从中栏宽度里抢 32px')
+  const panel = ruleBody('.wz-drawer-panel')
+  assert.ok(panel && /position:\s*absolute/.test(panel),
+    '展开的面板要绝对定位：它溢出到中栏之上，不参与宽度分配')
+  const open = ruleBody('.wz-drawer-left.is-open .wz-drawer-panel')
   assert.ok(open && /background:/.test(open),
     '左抽屉展开要自带底色：下面压着的是中栏的表单，透上来就读不下去了')
-  const noLeft = ruleBody('.wz-stage-no-left')
-  assert.ok(noLeft && /padding-left:\s*0/.test(noLeft),
-    '第 5 步没有左边条，那一条内边距要归零')
 })
 
 test('窄屏降级：960px 以下抽屉收窄到 280px', () => {
-  // 两侧都是浮层，中栏宽度不随开合变化；窄屏只把抽屉收窄，
+  // 中栏宽度不随开合变化；窄屏只把抽屉面板收窄，
   //   免得一块 392px 的抽屉在 960px 的屏上吃掉一半。
   const media = css.match(/@media\s*\(max-width:\s*960px\)\s*\{([\s\S]*?)\n\}/)
   assert.ok(media, 'editor.css 里没有 960px 的降级规则')
-  assert.match(media[1], /\.wz-drawer\.is-open\s*\{[^}]*width:\s*var\(--wz-drawer-w-narrow/,
-    '960px 以下抽屉应当收窄到 var(--wz-drawer-w-narrow)（默认 280px）')
+  assert.match(media[1], /--wz-drawer-w:\s*var\(--wz-drawer-w-narrow/,
+    '960px 以下把抽屉那一档换成 var(--wz-drawer-w-narrow)（默认 280px）；'
+    + '面板宽度恒定，换的是变量而不是展开态的 width')
   assert.match(media[1], /--wz-left-w:\s*var\(--wz-drawer-w-narrow/,
     '窄屏下预览的宽度上限也要按窄档算')
 })
@@ -283,4 +352,16 @@ test('骨架层用平级的 aside 与 main，不套项目的列容器', () => {
   assert.ok(/<main/.test(stage), '中栏该是 main')
   assert.ok(!stage.includes('workspace-left'), '骨架层不该再用 .workspace-left')
   assert.ok(!stage.includes('workspace-right'), '骨架层不该再用 .workspace-right')
+})
+
+test('滚动条槽位恒定（内容跨过滚动临界点时居中列不横移）', () => {
+  // 内容跨过滚动临界点时，滚动条占位使可用宽度少 10px，居中列左移 5px。
+  // scrollbar-gutter: stable 让槽位恒定，可用宽度不再随内容高度变。
+  // 这里只查「规则存在」，真正的判据是「不同内容高度下居中列左右边缘一致」，
+  // 那需要起浏览器量 DOM，属于集成测试，不在本静态文件里。行为化测试待补。
+  const css = fs.readFileSync(path.join(EDITOR, 'editor.css'), 'utf8')
+  const rule = css.match(/html\s*\{([^}]*)\}/)
+  assert.ok(rule, 'editor.css 里要有 html 规则来固定滚动条槽位')
+  assert.ok(/scrollbar-gutter:\s*stable/.test(rule[1]),
+    'html 上要 scrollbar-gutter: stable：否则内容一跨过滚动临界点，居中列就横移半条滚动条')
 })

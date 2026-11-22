@@ -20,6 +20,24 @@ import { orderForPool } from './paramPoolOrder'
 //   required 是否必填
 //   group   所属子命令或分组
 //   is_tool 是否是工具脚本的参数而非推理参数
+//
+// help 可能是纯字符串（上游原话），也可能是 {en, zh}：名片 call.bind 指向、但反射器
+//   没扫到的参数由 paramsFromReflect 补进池子，那一类带的是双语对象。直接渲染对象
+//   会让整栏崩在 React children 上，所以显示与搜索都先过一层取值。
+
+/** 显示用：双语对象按当前语言取一条，纯字符串原样返回。 */
+function langText (v, lang) {
+  if (v && typeof v === 'object') {
+    return lang === 'en' ? (v.en || v.zh || '') : (v.zh || v.en || '')
+  }
+  return v == null ? '' : String(v)
+}
+
+/** 搜索用：两种语言拼起来，哪种都能命中。 */
+function anyText (v) {
+  if (v && typeof v === 'object') return `${v.en || ''} ${v.zh || ''}`
+  return v == null ? '' : String(v)
+}
 
 /**
  * 参数池的一行。
@@ -28,8 +46,9 @@ import { orderForPool } from './paramPoolOrder'
  * 且平台已有的拖拽绑定区用的是同一套写法，两处行为一致。
  */
 function ParamItem ({ param, selected, used, onSelect, onDragStart }) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const type = paramTypeOf(param)
+  const help = langText(param.help, lang)
 
   return (
     <div
@@ -38,9 +57,9 @@ function ParamItem ({ param, selected, used, onSelect, onDragStart }) {
       onDragStart={(e) => onDragStart(e, param)}
       onClick={() => onSelect(param)}
       title={used
-        ? (param.help ? param.help + '\n' : '') +
+        ? (help ? help + '\n' : '') +
           t('Already used by a field. Drag it again to move or reuse it.', '已拖入某一格；可以再次拖动，换格或复用。')
-        : (param.help || '')}>
+        : help}>
       {/* 所有元信息收进同一行：类型徽标与「必填」同行，省掉独占一行的类型行，
           提高信息密度。group 仍保留（它是子命令分组，并非每个参数都有）。 */}
       <div className="wz-param-top">
@@ -64,8 +83,8 @@ function ParamItem ({ param, selected, used, onSelect, onDragStart }) {
           ? <span className="wz-param-group">{param.group}</span>
           : null}
       </div>
-      {param.help
-        ? <div className="wz-param-help">{param.help}</div>
+      {help
+        ? <div className="wz-param-help">{help}</div>
         : null}
     </div>
   )
@@ -92,9 +111,9 @@ export default function ParamPool ({ params, selected, used, onSelect, onDragSta
   const ordered = orderForPool(list)
   const filtered = kw
     ? ordered.filter((p) =>
-        (p.target || '').toLowerCase().includes(kw) ||
-        (p.name || '').toLowerCase().includes(kw) ||
-        (p.help || '').toLowerCase().includes(kw))
+        anyText(p.target).toLowerCase().includes(kw) ||
+        anyText(p.name).toLowerCase().includes(kw) ||
+        anyText(p.help).toLowerCase().includes(kw))
     : ordered
 
   if (!list.length) {

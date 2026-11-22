@@ -3,6 +3,8 @@
 // 完成状态由 GET /wizard/install-state 返回的真实产物判定，不读 localStorage。
 import React from 'react'
 import Pipeline from './Pipeline'
+import Stage from './Stage'
+import StepCard from './StepCard'
 import ManifestPage from './ManifestPage'
 import StepPrepare from './StepPrepare'
 import StepDeps from './StepDeps'
@@ -246,6 +248,18 @@ export default function App () {
   const done = Object.fromEntries(
     STEPS.map((st) => [st.key, stepDone(st.key, facts)]))
 
+  // 第 4、5 步各自持有 Stage，步骤大框要由它们自己渲染；这里把大框头需要的
+  // 三件事按「固定那一步」算好传下去，不使用当前 page 的 title/isDone：
+  //   四、五步常驻，切走时 page 会指向别的步骤，用当前值会让隐藏的框头跟着换标题。
+  const frameOf = (key) => {
+    const s = STEPS.find((x) => x.key === key)
+    return {
+      title: s ? (lang === 'zh' ? s.label[1] : s.label[0]) : '',
+      done: !!done[key],
+      onClose: () => setPage(null),
+    }
+  }
+
   // 当前展开的是哪一步（持久段：刷新后停在上次那一步）
   const [page, setPageState] = React.useState(loadPage)
   const setPage = (next) => {
@@ -262,16 +276,34 @@ export default function App () {
   // 完成状态由真实产物判定（steps.js 的 stepDone），不看用户点过什么
   const isDone = !!step && done[step.key]
 
+  // ---- 五步常驻，切页只换显隐，不卸载 ----
+  // 条件渲染（page === 'env' && <StepDeps/>）在切走时会把整个子树卸载：
+  //   组件内的进度、SSE 订阅、日志尾巴、滚动位置一起归零，回来只能靠
+  //   「先写进会话段、挂载时再读回来」补，补不齐就是丢进度。
+  // 改成首次进入才挂载、之后一直留着、非当前步 display:none：
+  //   状态留在组件里，不需要任何一份快照与重连。
+  // 挂载集合只增不减；切换引擎不是靠卸载，各组件自己的 [id] 依赖会重读。
+  const [visited, setVisited] = React.useState(() => (page ? [page] : []))
+  React.useEffect(() => {
+    if (!page) return
+    setVisited((cur) => (cur.includes(page) ? cur : [...cur, page]))
+  }, [page])
+  const mounted = (key) => visited.includes(key)
+  // display:none 而不是不渲染：子树保留，定时器、SSE、输入框内容都还在。
+  const shown = (key) => (page === key ? undefined : { display: 'none' })
+  // 1、2、3 步共用同一个详情框（标题、逃生口、外框都是共用的），
+  //   所以按「这三步是否有一个在用」决定整个框的显隐。
+  const BASIC_KEYS = ['prepare', 'env', 'models']
+  const basicMounted = BASIC_KEYS.some(mounted)
+  const basicShown = BASIC_KEYS.includes(page) ? undefined : { display: 'none' }
+
   return (
-    // 外层不再整个套 .workspace-container：第 4 步的三栏要铺满页面宽度，
-    //   套在 1400px 的居中容器里，边条就只能贴着主容器两边，
-    //   左栏参数被挤窄、右栏预览放不到平台前端的尺寸。
-    //   顶栏、流程条与其余四步照旧在容器里；第 4 步自己全宽，中栏内容再对齐容器。
-    // 底部留白只在普通步骤外挂；第 4、5 步交给 .wz-stage-main 内边距，
-    // 否则 sticky 抽屉的可吸附范围被 stage 底部截断，滚到底会被顶出视口。
-    <div className="wz-root" style={(page === 'manifest' || page === 'verify')
-      ? undefined
-      : { paddingBottom: 'calc(var(--sp-24) * 2)' }}>
+    // 外层不套 .workspace-container：五步的内容区统一走全宽 Stage，
+    //   中栏内容各自用 .wz-stage-main-inner 对齐 1400px 的大容器。
+    //   顶栏与流程条仍留在共用的居中容器里。
+    // 底部留白统一交给 .wz-stage-main 的内边距，不再按步分别挂：
+    //   sticky 抽屉的可吸附范围不能被 stage 底部的额外留白截断。
+    <div className="wz-root">
       {/* 断线提示的落点：占文档流，出现在页面最顶部；内容随它整体下移，互不遮盖。 */}
       <div id="wz-conn-slot" />
       <div className="workspace-container wz-root">
@@ -296,14 +328,17 @@ export default function App () {
           套进这个详情框里等于把页面骨架当卡片内容塞：
           边框套边框、圆角套圆角，页面还多出一层内缩。
           所以第 4 步直接进 .wz-stage，不经过 .node-detail。 */}
-      {page === 'manifest' && (
-        <div className="wz-manifest-shell">
-          <ManifestPage manifest={manifest} spec={spec}
+      {mounted('manifest') && (
+        <div className="wz-manifest-shell" style={shown('manifest')}>
+          <ManifestPage manifest={manifest} spec={spec} frame={frameOf('manifest')}
             text={text} err={err} setText={setText}
             // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
             onManifest={(m) => { setManifest(m); setErr(null) }}
             // 第 4 步的引擎下拉与逃生口走同一条切换：2 到 5 步语义一致。
             onPickEngineTarget={switchEngine}
+            // 引擎清单五步共用 App 这一份：克隆、切换、保存后一次 reload 全线同步，
+            //   不各自取一次导致「别处认得、这里认不得」。
+            dirs={engineDirs} onDirsReload={reloadDirs}
             diag={vresult} loading={vloading}
             // 保存回调传的是保存结果对象，不是引擎 id。这里忽略它，按刚保存的那台重读；
             //   直接把对象交给 reloadFacts 会拿去查 install-state?id=%5Bobject%20Object%5D。
@@ -317,43 +352,37 @@ export default function App () {
 
       {/* 第 5 步像第 4 步一样走独立全宽骨架：Stage 的抽屉是 100vh 的 sticky 边条，
           塞进 .node-detail 小卡片会撑破。逃生口移到中栏顶部，五步都能切引擎。 */}
-      {page === 'verify' && (
-        <StepVerify id={wz.id}
-          escape={<EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />} />
+      {mounted('verify') && (
+        <div style={shown('verify')}>
+          <StepVerify id={wz.id} frame={frameOf('verify')}
+            escape={<EngineEscapeHatch id={wz.id} dirs={engineDirs}
+              onSwitch={switchEngine} domId="wz-escape-pick-verify" />} />
+        </div>
       )}
 
-      {page && page !== 'manifest' && page !== 'verify' && (
-      <div className="workspace-container wz-root">
-      {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
-      {page && page !== 'manifest' && (
-        <div className="node-detail">
-          <div className="node-detail-hdr">
-            <span className="node-detail-title">{title}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className={`badge ${isDone ? 'badge-ok' : 'badge-neutral'}`}>
-                {isDone ? t('Done', '已完成') : t('In progress', '进行中')}
-              </span>
-              <button className="btn btn-sm" type="button" onClick={() => setPage(null)}>
-                {t('Close', '关闭')}
-              </button>
-            </div>
-          </div>
-
+      {/* ---- 1、2、3 步与 4、5 步共用同一个 Stage 骨架 ----
+          五步都是「页面 + 内容区」：顶栏与流程条在上，下面挂一个 Stage。
+          1–3 步不挂左右抽屉（left/right 都不传），只留中栏，是一张单列表单；
+          4 步挂满三栏，5 步只挂右抽屉。边条是按需挂的，不是某几步的专属结构。
+          三步各自常驻，靠 shown/basicShown 换显隐，不卸载。 */}
+      {basicMounted && (
+      <div style={basicShown}>
+      <Stage
+        center={
+          <div className="wz-stage-main-inner">
+        <StepCard title={title} done={isDone} onClose={() => setPage(null)}>
           {/* ---- 每一步的逃生口 ----
               五步不再互相锁：锁的判据是「第 1 步完成」，而完成状态由真实产物判，
                 它与界面上看到的不一致时人会被卡在第 1 步，且无从自救。
               改成每步在这里选「操作哪一台」：默认落在刚克隆的那台（wz.id），
                 也可以直接挑 engines/ 下的任意目录。切换即全局重定向。
               第 1 步同样放一个：这一步也能复用 engines/ 下已有的目录。 */}
-          <div className="section">
-            <div className="section-body">
-              <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
-            </div>
-          </div>
+          <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
 
           <fieldset style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
-            {page === 'prepare' && (
-              <StepPrepare state={wz} facts={facts} factsId={factsId}
+            <div style={shown('prepare')}>
+              {mounted('prepare') && (<StepPrepare state={wz} facts={facts} factsId={factsId}
+                engineDirs={engineDirs}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
                 onDone={(clonedId) => {
                   reloadFacts(clonedId)
@@ -368,10 +397,10 @@ export default function App () {
                 // 撤销克隆 ⇒ 目录没了 ⇒ 重新判完成状态（facts.prepare 变 false，
                 // 「已克隆」区收起，回到命令区）。不跳页：第 1 步撤销后留在第 1 步重来。
                 onUndone={(id) => reloadFacts(id)}
-                prep={prep} onPrep={patchPrep} />
-            )}
-            {page === 'env' && (
-              <StepDeps state={{ ...wz, manifest: manifest || {} }}
+                prep={prep} onPrep={patchPrep} />)}
+            </div>
+            <div style={shown('env')}>
+              {mounted('env') && (<StepDeps state={{ ...wz, manifest: manifest || {} }}
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 onReload={() => reloadFacts()}
@@ -380,19 +409,20 @@ export default function App () {
                   // 不写 wz.cloned：完成状态只由端点读盘判，持久段里没有它的位置。
                   reloadFacts()
                   setPage('prepare')
-                }} />
-            )}
-            {page === 'models' && (
-              <StepModels state={wz} onChange={reloadFacts}
+                }} />)}
+            </div>
+            <div style={shown('models')}>
+              {mounted('models') && (<StepModels state={wz} onChange={reloadFacts}
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 weightsPath={facts.checkpoints_path}
-                probe={prep.probe || null} />
-            )}
+                probe={prep.probe || null} />)}
+            </div>
                 </fieldset>
-        </div>
-      )}
-
+        </StepCard>
+          </div>
+        }
+      />
       {/* ---- 右下角：当前操作的常驻状态 ----
           五步共用同一份事实（wz.id / page / done），切引擎之后不必猜
           「现在操作哪台、走到哪步、这一步做完了没有」。
@@ -427,24 +457,29 @@ export default function App () {
         </div>
       )}
 
-      {/* ---- 收起态：点 Close 之后别是一片空白 ---- */}
-      {!page && (
-        <div className="node-detail">
-          <div className="node-detail-hdr">
-            <span className="node-detail-title">
-              {t('Nothing open', '当前没有展开的步骤')}
-            </span>
-            <button className="btn btn-sm" type="button" onClick={() => setPage('prepare')}>
-              {t('Open step 1', '打开第 1 步')}
-            </button>
-          </div>
-          <p className="field-hint" style={{ margin: 0 }}>
-            {t('Collapsed. Select a step above to continue configuring.',
-              '已收起。选择上方任一步骤即可继续配置。')}
-          </p>
-        </div>
-      )}
       </div>
+      )}
+
+      {/* ---- 收起态：点 Close 之后别是一片空白；同样走 Stage 骨架 ---- */}
+      {!page && (
+        <Stage
+          center={
+            <div className="wz-stage-main-inner">
+              <StepCard
+                title={t('Nothing open', '当前没有展开的步骤')}
+                action={
+                  <button className="btn btn-sm" type="button" onClick={() => setPage('prepare')}>
+                    {t('Open step 1', '打开第 1 步')}
+                  </button>
+                }>
+                <p className="field-hint" style={{ margin: 0 }}>
+                  {t('Collapsed. Select a step above to continue configuring.',
+                    '已收起。选择上方任一步骤即可继续配置。')}
+                </p>
+              </StepCard>
+            </div>
+          }
+        />
       )}
     </div>
   )

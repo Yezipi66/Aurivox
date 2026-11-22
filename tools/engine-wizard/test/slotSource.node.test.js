@@ -53,6 +53,7 @@ const RequiredFields = loadModule('RequiredFields.jsx', {
   './optionalKeys': loadModule('optionalKeys.js', {}),
   './weightsField': loadModule('weightsField.js', {}),
   './textEntryField': loadModule('textEntryField.js', {}),
+  './entryChoiceField': loadModule('entryChoiceField.js', {}),
 }).default
 
 const container = dom.window.document.getElementById('root')

@@ -37,6 +37,8 @@ export default function ParamDropZone ({
 }) {
   const { t } = useT()
   const [over, setOver] = React.useState(false)
+  // 形态决定这一列的语义：cli 是开关输入框，python 是方法参数名镜像。
+  const isPython = manifest && manifest.call && manifest.call.kind === 'python'
   // 整个「合成参数」区和下方的「引擎配置」一样可收起：一次扫描进来十几二十行，
   //   占满整屏，往下的「可选能力」「引擎配置」全被挤到看不见的地方。
   const [open, setOpen] = React.useState(true)
@@ -100,7 +102,9 @@ export default function ParamDropZone ({
   const setParam = (i, v, meta = {}) => {
     const next = { ...manifest }
     const copy = [...list]
-    copy[i] = v
+    // 人接过这一行就标 manual：扫描写回不再按形态删它，后续重扫也不覆盖它的字段。
+    //   manual 是来源域的第三态，与 cli / python 并列，不靠「中文名填没填」去猜。
+    copy[i] = { ...v, scan_kind: 'manual' }
     next.parameters = copy
     if (meta.argv && next.call) next.call = withArgKey(next.call, meta.argv)
     onChange(next)
@@ -223,9 +227,14 @@ export default function ParamDropZone ({
             <div className="card wz-param-sheet">
               <div className="wz-param-row wz-param-cols">
                 <span className="wz-param-argv"
-                  title={t('The switch the engine takes, for example --speed. The parameter name drops the leading dashes.',
-                    '引擎命令行上使用的开关，例如 --speed。参数名由它去掉开头横线得到。')}>
-                  {t('CLI switch', '命令行开关')}
+                  title={isPython
+                    ? t('The upstream method parameter this row binds to. It is the method parameter name, not a command line switch.',
+                      '这一行绑定的上游方法参数名。Python 类形态下没有命令行开关，参数名即方法参数名。')
+                    : t('The switch the engine takes, for example --speed. The parameter name drops the leading dashes.',
+                      '引擎命令行上使用的开关，例如 --speed。参数名由它去掉开头横线得到。')}>
+                  {isPython
+                    ? t('Method parameter', '方法参数名')
+                    : t('CLI switch', '命令行开关')}
                 </span>
                 <span className="wz-param-zh"
                   title={t('Chinese name above the control. Falls back to the parameter name when empty.',
@@ -258,6 +267,7 @@ export default function ParamDropZone ({
                   && manifest.call.args[(p || {}).name]) || {}
                 return (
                   <ParamRow key={i} entry={p || {}} index={i} spec={spec}
+                    kind={isPython ? 'python' : 'cli'}
                     argv={arg.flag || ''}
                     argStyle={arg.style || ''}
                     typeGuessed={!!(guessed && p && guessed.has(p.name))}
@@ -271,6 +281,10 @@ export default function ParamDropZone ({
           </>
         )}
 
+
+        {/* 分隔线：上面是合成参数（生成页上给用户调的旋钮），
+            下面是可选能力与引擎配置（引擎自身的开关与启动项），两者不是同一类事。 */}
+        <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
 
         {/* 同一个「可选参数」区里的第二段（ManifestForm 传进来的引擎配置）。 */}
         {children}

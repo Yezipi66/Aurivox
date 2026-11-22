@@ -10,7 +10,7 @@
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { spawnSync } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 
 const ROOT = path.join(__dirname, '..')
 // require 相对本文件解析（不是 cwd）。写成 main() 里再 require '../lib/...' 也对，
@@ -112,19 +112,53 @@ function exclusionReason(name) {
   return null
 }
 
-// 跑反射
+// 跑反射。规格走临时文件而不是命令行参数：模块名里出现引号或中文时，
+//   命令行在 Windows 上会被二次解析（与 lib/engines/envCheck.js 同一条理由）。
+function writeSpecFile (spec) {
+  const specFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-reflect-')), 'spec.json')
+  fs.writeFileSync(specFile, JSON.stringify(spec), 'utf8')
+  return specFile
+}
+
+function dropSpecFile (specFile) {
+  try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) } catch { /* 临时目录清不掉就算了 */ }
+}
+
+// 子进程结束后的三态解析：spawn 与 spawnSync 共用，避免两条路对「反射失败」的判定分叉。
+//   proc 约定成 {error, status, stdout, stderr}。
+function parseReflectProc (proc, python) {
+  if (proc.error) {
+    return { ok: false, stage: 'spawn', error: `起不动解释器 ${python}：${proc.error.message}` }
+  }
+  if (proc.status !== 0) {
+    // 反射器永远以 0 退出（ok=false 是一个答案）。非零说明反射器自己出事了，
+    //   与「这台引擎反射不出来」是两回事，必须分开说。
+    return {
+      ok: false, stage: 'crash',
+      error: `反射器非零退出（code=${proc.status}），这是反射器自己出事，不是「这台引擎没参数」`,
+      detail: (proc.stderr || '').slice(-2000),
+    }
+  }
+  try {
+    return JSON.parse(proc.stdout)
+  } catch {
+    return {
+      ok: false, stage: 'parse',
+      error: '反射器输出不是 JSON，通常是引擎环境在 import 时往 stdout 打了东西',
+      detail: (proc.stdout || '').slice(0, 2000),
+    }
+  }
+}
+
 /**
+ * 同步版：CLI 与测试用。
  * @param {object} spec { python, module, class, method, sys_path, skip }
  * @param {object} [opts] { timeoutMs }
  * @returns {object} 反射结果（永远是对象；失败时 ok:false）
  */
 function reflectParams(spec, opts = {}) {
-  // 规格走临时文件而不是命令行参数：模块名里出现引号或中文时，
-  //   命令行在 Windows 上会被二次解析（与 lib/engines/envCheck.js 同一条理由）。
-  const specFile = path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-reflect-')), 'spec.json')
-  fs.writeFileSync(specFile, JSON.stringify(spec), 'utf8')
-
+  const specFile = writeSpecFile(spec)
   let proc
   try {
     proc = spawnSync(spec.python, [REFLECTOR, '--spec-file', specFile], {
@@ -138,32 +172,57 @@ function reflectParams(spec, opts = {}) {
   } catch (err) {
     return { ok: false, stage: 'spawn', error: `起不动解释器 ${spec.python}：${err.message}` }
   } finally {
-    try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) } catch { /* 临时目录清不掉就算了 */ }
+    dropSpecFile(specFile)
   }
+  return parseReflectProc(proc, spec.python)
+}
 
-  if (proc.error) {
-    return { ok: false, stage: 'spawn', error: `起不动解释器 ${spec.python}：${proc.error.message}` }
-  }
-  if (proc.status !== 0) {
-    // 反射器永远以 0 退出（ok=false 是一个答案）。非零说明反射器自己出事了，
-    //   与「这台引擎反射不出来」是两回事，必须分开说。
-    return {
-      ok: false, stage: 'crash',
-      error: `反射器非零退出（code=${proc.status}），这是反射器自己出事，不是「这台引擎没参数」`,
-      detail: (proc.stderr || '').slice(-2000),
+/**
+ * 异步版：web 服务用。反射即使退回 import 路要几十秒，也不能阻塞事件循环，
+ *   否则 /wizard/manifest/<id> 这种只读 JSON 的毫秒级请求会排在它后面一起卡住。
+ * @returns {Promise<object>} 反射结果（永远不会 reject；失败时 ok:false）
+ */
+function reflectParamsAsync(spec, opts = {}) {
+  const specFile = writeSpecFile(spec)
+  const timeout = opts.timeoutMs || 120000
+  return new Promise((resolve) => {
+    let child
+    try {
+      child = spawn(spec.python, [REFLECTOR, '--spec-file', specFile], {
+        cwd: spec.cwd || process.cwd(),
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      })
+    } catch (err) {
+      dropSpecFile(specFile)
+      resolve({ ok: false, stage: 'spawn', error: `起不动解释器 ${spec.python}：${err.message}` })
+      return
     }
-  }
-  let payload
-  try {
-    payload = JSON.parse(proc.stdout)
-  } catch {
-    return {
-      ok: false, stage: 'parse',
-      error: '反射器输出不是 JSON，通常是引擎环境在 import 时往 stdout 打了东西',
-      detail: (proc.stdout || '').slice(0, 2000),
+    const stdout = []
+    const stderr = []
+    let settled = false
+    let timer = null
+    const finish = (proc) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      dropSpecFile(specFile)
+      resolve(parseReflectProc(proc, spec.python))
     }
-  }
-  return payload
+    child.stdout.on('data', (b) => stdout.push(b))
+    child.stderr.on('data', (b) => stderr.push(b))
+    child.on('error', (err) => finish({ error: err }))
+    child.on('close', (code) => finish({
+      status: code,
+      stdout: Buffer.concat(stdout).toString('utf8'),
+      stderr: Buffer.concat(stderr).toString('utf8'),
+    }))
+    timer = setTimeout(() => {
+      if (settled) return
+      // 超时也要收掉进程树：反射器可能已经拉起了 python 解释器。
+      try { child.kill() } catch { /* 已经退出了 */ }
+      finish({ status: -1, stderr: `反射超时（等待 ${Math.round(timeout / 1000)} 秒）` })
+    }, timeout)
+  })
 }
 
 // 组装 parameters[] 草稿
@@ -397,7 +456,7 @@ function main(argv) {
   return 0
 }
 
-module.exports = { reflectParams, buildDraft, inferType, exclusionReason, EXCLUDE, REFLECTOR }
+module.exports = { reflectParams, reflectParamsAsync, buildDraft, inferType, exclusionReason, EXCLUDE, REFLECTOR }
 
 if (require.main === module) {
   process.exit(main(process.argv.slice(2)))

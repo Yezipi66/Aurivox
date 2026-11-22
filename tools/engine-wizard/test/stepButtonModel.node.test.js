@@ -134,8 +134,10 @@ test('目录名留空跟随链接：推导值只进 placeholder，不写回输�
 test('目录名是下拉 + 文本框（editable Select），候选来自 engines/ 下的目录', () => {
   assert.ok(/<Select className="control" editable value=\{idInput\}/.test(prepSrc),
     '目录名不是可编辑下拉：无法从已有引擎里选一台复用')
-  assert.ok(/const \{ dirs: engineDirs \} = useEngineDirs\(\)/.test(prepSrc),
-    '目录名候选清单没接 useEngineDirs：下拉里没有已有目录可选')
+  // 候选清单与其余四步共用 App 那一份：从 props 收，不再各自取一次。
+  //   各自取时刷新时机不同步，克隆完成后这里看不到新目录。
+  assert.ok(/onUndone, engineDirs \}\)/.test(prepSrc),
+    '目录名候选清单没接 App 传下来的 engineDirs：下拉里没有已有目录可选')
   assert.ok(/<option value="">\{t\('— follow the link —', '跟随链接'\)\}<\/option>/.test(prepSrc),
     '下拉里没有「跟随链接」这一项：选中一个具体目录后无法回到跟随')
 })

@@ -6,6 +6,10 @@ const { SECTIONS_BY_KEY, PARAM_FIELDS_BY_KEY, DANGER } = require('./fieldmeta')
 const { deriveParameterViews } = require(
   path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'parameterDeclaration.js')
 )
+// v0.1.1：校验器收裸名片，三节或扁平都可能是输入，先投影成扁平再校验。
+const { fromV011 } = require(
+  path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'contract.js')
+)
 
 // 平台的字段判据原语：required / requiredBool / positiveInt / parseClipSeconds。
 // 「这个键缺了算不算缺」不重写在这里，直接问平台自己：
@@ -52,7 +56,10 @@ function locate (keyPath, manifest) {
   }
 }
 
-function diagnose (manifest) {
+function diagnose (rawManifest) {
+  // v0.1.1：三节名片先投影成扁平视图，下面所有字段检查都认这一份。
+  // 从向导内存送来的扁平对象经 fromV011 幂等返回，行为不变。
+  const manifest = fromV011(rawManifest)
   const out = []
   const push = (level, code, message, where) => out.push({ level, code, message, ...where })
 
@@ -314,7 +321,7 @@ function resolveFromObject (manifest) {
     }
     return out
   }
-  const stripped = strip(manifest)
+  const stripped = strip(fromV011(manifest))
   const derived = deriveParameterViews(stripped)
   return derived
 }

@@ -32,7 +32,7 @@ const drop = load('paramDrop.js', {
   './paramFields.js': fieldsMod,
 })
 
-const { addParamsFromScan } = drop
+const { addParamsFromScan, syncParamsFromScan } = drop
 
 // 左栏列出的那一组：一个路径、一个数字、一个布尔
 const POOL = [
@@ -156,4 +156,146 @@ test('一次加入：只进了 call.args 当命令行映射的开关仍可做成
   const r = addParamsFromScan(m, pool)
   assert.deepStrictEqual(r.added, ['speed'])
   assert.strictEqual(r.manifest.parameters[0].name, 'speed')
+})
+
+// 扫描写回的整表同步：python 形态重扫后，上一轮 cli 扫出来的行不能留在表里。
+test('整表同步：清掉人没碰过、本次没扫到的旧形态行', () => {
+  const old = (name) => ({
+    name, tier: 'common', type: 'file',
+    label: { en: name, zh: '' },
+    help: { zh: 'upstream words', en: 'upstream words' },
+  })
+  const m = {
+    id: 'x',
+    call: { kind: 'python' },
+    parameters: [old('dst_model'), old('src_path'), old('val_best')],
+  }
+  // python 方法签名：只有 speed 落进来，其余是上次 cli 扫描的残留
+  const pool = [
+    { source: 'python', name: 'speed', kind: 'number', phase: 'call' },
+    { source: 'python', name: 'stream', kind: 'boolean', phase: 'call' },
+  ]
+  const r = syncParamsFromScan(m, pool)
+  assert.deepStrictEqual(r.removed.sort(), ['dst_model', 'src_path', 'val_best'])
+  assert.deepStrictEqual(r.added.sort(), ['speed', 'stream'])
+  assert.deepStrictEqual(
+    r.manifest.parameters.map((p) => p.name).sort(), ['speed', 'stream'])
+})
+
+test('整表同步：人填过中文名或改过说明的行不动', () => {
+  const hand = { name: 'kept', tier: 'common', type: 'text',
+    label: { en: 'kept', zh: '人填的中文名' }, help: { zh: '人写的说明', en: 'own words' } }
+  const stale = { name: 'gone', tier: 'common', type: 'text',
+    label: { en: 'gone', zh: '' }, help: { zh: '', en: '' } }
+  const m = { id: 'x', call: { kind: 'python' }, parameters: [hand, stale] }
+  const r = syncParamsFromScan(m, [{ source: 'python', name: 'speed', kind: 'number' }])
+  assert.deepStrictEqual(r.removed, ['gone'])
+  assert.strictEqual(r.manifest.parameters[0].zh, undefined)
+  assert.ok(r.manifest.parameters.some((p) => p.name === 'kept' && p.label.zh === '人填的中文名'))
+})
+
+// 形态标记：这一行从哪个入口形态扫出来的，写回时按它清场，不靠猜。
+test('扫描行写入形态标记；python-static 归一成 python', () => {
+  const cliRow = drop.applyScanShape({}, { source: 'cli', name: 'speed', kind: 'float' })
+  const pyRow = drop.applyScanShape({}, { source: 'python', name: 'speed', kind: 'float' })
+  const staticRow = drop.applyScanShape({}, { source: 'python-static', name: 'speed', kind: 'float' })
+  assert.strictEqual(cliRow.scan_kind, 'cli')
+  assert.strictEqual(pyRow.scan_kind, 'python')
+  assert.strictEqual(staticRow.scan_kind, 'python', '静态反射与 import 反射是同一形态，不能分成两种')
+})
+
+test('带 cli 标记的异形态行删掉；manual 行不动', () => {
+  const cli = { name: 'dst_model', scan_kind: 'cli', tier: 'common', type: 'file',
+    label: { en: 'dst_model', zh: '' }, help: { zh: '', en: '' } }
+  const hand = { name: 'my_own', scan_kind: 'manual', tier: 'common', type: 'number',
+    label: { en: 'my_own', zh: '我加的' }, help: { zh: '自己的说明', en: 'own words' } }
+  const m = { id: 'x', call: { kind: 'python' }, parameters: [cli, hand] }
+  const r = syncParamsFromScan(m, [{ source: 'python', name: 'speed', kind: 'number' }])
+  assert.deepStrictEqual(r.removed, ['dst_model'])
+  const kept = r.manifest.parameters.find((p) => p.name === 'my_own')
+  assert.ok(kept, 'manual 行不删')
+  assert.strictEqual(kept.label.zh, '我加的', 'manual 行的字段一个不动')
+})
+
+test('本次扫到的无标记存量行顺手补形态，名片扫一次就升级', () => {
+  const legacy = { name: 'speed', tier: 'common', type: 'number',
+    label: { en: 'speed', zh: '' }, help: { zh: '', en: '' } }
+  const m = { id: 'x', call: { kind: 'python' }, parameters: [legacy] }
+  const r = syncParamsFromScan(m, [{ source: 'python', name: 'speed', kind: 'number' }])
+  assert.strictEqual(r.manifest.parameters[0].scan_kind, 'python')
+  assert.deepStrictEqual(r.removed, [])
+})
+
+test('manual 行不被扫描补全改写来源', () => {
+  const row = { name: 'speed', scan_kind: 'manual', type: 'text',
+    label: { en: 'speed', zh: '我自己定的' } }
+  const out = drop.applyScanShape(row, { source: 'python', name: 'speed', kind: 'number' })
+  assert.strictEqual(out.scan_kind, 'manual')
+  assert.strictEqual(out.label.zh, '我自己定的')
+})
+
+test('无标记存量行：人改过的补 manual，人没碰过且本次没扫到的删', () => {
+  const hand = { name: 'tuned', tier: 'common', type: 'number',
+    label: { en: 'tuned', zh: '我调过' }, help: { zh: '', en: '' } }
+  const stale = { name: 'old_flag', tier: 'common', type: 'file',
+    label: { en: 'old_flag', zh: '' }, help: { zh: '', en: '' } }
+  const m = { id: 'x', call: { kind: 'python' }, parameters: [hand, stale] }
+  const r = syncParamsFromScan(m, [{ source: 'python', name: 'speed', kind: 'number' }])
+  assert.deepStrictEqual(r.removed, ['old_flag'])
+  const tuned = r.manifest.parameters.find((p) => p.name === 'tuned')
+  assert.strictEqual(tuned.scan_kind, 'manual', '人改过的归 manual，不再被下次重扫删掉')
+})
+
+test('归属判据：python 的 bind 参数按 name 认，不在合成表里再做一行', () => {
+  const m = { id: 'x', call: {
+    kind: 'python',
+    bind: { text: 'tts_text', ref_audio: 'prompt_wav', ref_text: 'prompt_text' },
+  } }
+  for (const name of ['tts_text', 'prompt_wav', 'prompt_text']) {
+    assert.strictEqual(drop.isParamTaken(m, { source: 'python', name, kind: 'text' }), true,
+      name + ' 已在必填区有格子，不能再进合成表')
+  }
+  assert.strictEqual(drop.isParamTaken(m, { source: 'python', name: 'speed', kind: 'number' }), false,
+    'speed 没进任何格子，该留在合成表')
+})
+
+test('归属判据：cli 的 bind 仍按开关名认，不受 python 分支影响', () => {
+  const m = { id: 'x', call: { kind: 'cli', bind: { text: '--prompt_text' } } }
+  assert.strictEqual(drop.isParamTaken(m,
+    { source: 'cli', name: 'prompt_text', target: '--prompt_text', kind: 'str' }), true)
+})
+
+test('扫描写回：bind 接管的 python 参数不重复进表', () => {
+  const m = { id: 'x', call: {
+    kind: 'python',
+    bind: { text: 'tts_text', ref_audio: 'prompt_wav', ref_text: 'prompt_text' },
+  } }
+  const pool = [
+    { source: 'python', name: 'tts_text', kind: 'text' },
+    { source: 'python', name: 'prompt_text', kind: 'text' },
+    { source: 'python', name: 'prompt_wav', kind: 'file' },
+    { source: 'python', name: 'speed', kind: 'number' },
+  ]
+  const r = addParamsFromScan(m, pool)
+  assert.deepStrictEqual(r.added, ['speed'], '只有没被 bind 接管的 speed 进表')
+})
+
+test('整表同步：bind 接管的行从合成表清掉，manual 的同名行留住', () => {
+  const bound = { name: 'tts_text', scan_kind: 'python', tier: 'common', type: 'text',
+    label: { en: 'tts_text', zh: '' }, help: { zh: '', en: '' } }
+  const hand = { name: 'prompt_text', scan_kind: 'manual', tier: 'common', type: 'text',
+    label: { en: 'prompt_text', zh: '我改过' }, help: { zh: '我自己写的', en: 'mine' } }
+  const m = { id: 'x', call: {
+    kind: 'python',
+    bind: { text: 'tts_text', ref_text: 'prompt_text' },
+  }, parameters: [bound, hand] }
+  const r = syncParamsFromScan(m, [
+    { source: 'python', name: 'tts_text', kind: 'text' },
+    { source: 'python', name: 'prompt_text', kind: 'text' },
+    { source: 'python', name: 'speed', kind: 'number' },
+  ])
+  assert.ok(r.removed.includes('tts_text'), 'bind 接管的自动清掉')
+  assert.ok(!r.removed.includes('prompt_text'), 'manual 优先，bind 也不动它')
+  assert.ok(r.manifest.parameters.some((p) => p.name === 'prompt_text'))
+  assert.deepStrictEqual(r.added, ['speed'])
 })

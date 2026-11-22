@@ -17,6 +17,9 @@ const SKIP_DIRS = Object.freeze(new Set([
   'node_modules', '__pycache__', '.venv', 'venv', 'env', '.env', 'site-packages',
   'build', 'dist', 'docs', 'doc', 'tests', 'test', 'testing',
   'examples', 'notebooks', 'assets', 'static', 'wheels',
+  // 第三方依赖（git submodule 的常见落点）。它们的 .py 不是这台引擎的入口：
+  //   不过滤时，依赖里的 onnx/infer.py 会顶掉真正的入口候选。
+  'third_party', 'third-party', '3rdparty',
   '.git', '.github', '.idea', '.vscode', '.tox', '.eggs',
   '.mypy_cache', '.pytest_cache', '.ruff_cache',
 ]))

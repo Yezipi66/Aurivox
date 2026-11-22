@@ -189,6 +189,10 @@ export default function OptionalConfig ({ manifest, onChange }) {
           重要但非必填，所以默认展开；运行设备是启动期设置，放在下面的引擎配置里。 */}
       <OptionalCapabilities manifest={m} onChange={onChange} />
 
+      {/* 分隔线：可选能力是「合成时要用什么」，引擎配置是「怎么起这个引擎」，
+          两件事挨在一起会读成一段。 */}
+      <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+
       {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。 */}
       <div
         className="wz-subhead"

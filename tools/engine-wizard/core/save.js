@@ -7,6 +7,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const wizardRoot = require('./wizardRoot')
+const { toV011, fromV011, idOf } = require('../../../lib/engines/contract')
 
 // 名片落盘的根：本 checkout；设了 WIZARD_PROJECT_ROOT 才写到那里（见 wizardRoot.js）。
 //   读取另走 readRoots：本 checkout 优先，主仓库兜底。
@@ -55,10 +56,12 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 2. id（最常错的一项，先查）----
-  const idErr = validateId(manifest.id)
+  // v0.1.1：三节名片的 id 在 registration.id；扁平老名片在顶层。
+  // toV011 对三节输入幂等，所以这里兼容 id 位置后，整段写盘逻辑不需要分叉。
+  const idErr = validateId(idOf(manifest))
   if (idErr) return { ok: false, code: 'BAD_ID', error: idErr }
 
-  const id = manifest.id
+  const id = idOf(manifest)
   const dir = path.join(enginesDir, id)
 
   // ---- 3. 不许写到 engines/ 之外 ----
@@ -93,7 +96,8 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // 写盘原样保留注释：在这里剥掉，读回来再存一次就会把说明永久删掉。
-  const clean = manifest
+  // v0.1.1：向导内存里是扁平视图，落盘统一收成三节；acceptance 由 opts 带入。
+  const clean = toV011(manifest, { acceptance: opts.acceptance })
 
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，
   //   而用户填的名片本身没问题：错的是「有一个字段无法写入」。
@@ -191,7 +195,10 @@ function listInstalledIn (enginesDir, opts) {
     if (!fs.existsSync(mf)) return null
     let has = false
     try {
-      has = JSON.parse(fs.readFileSync(mf, 'utf-8')).id === n
+      const parsed = JSON.parse(fs.readFileSync(mf, 'utf-8'))
+      // v0.1.1：id 在 registration.id；扁平老名片 id 在顶层。两种都认。
+      const id = (parsed.registration && parsed.registration.id) || parsed.id
+      has = id === n
     } catch { /* 无法读取就当不知道 */ }
     return { id: n, manifestPresent: true, idMatchesDir: has }
   }
@@ -242,7 +249,7 @@ function readManifestById (id, opts = {}) {
     return { ok: false, code: 'BAD_JSON', path: file,
       error: `engines/${id}/manifest.json is not valid JSON: ${e.message}` }
   }
-  return { ok: true, id, manifest, path: file, bytes: text.length }
+  return { ok: true, id, manifest: fromV011(manifest), path: file, bytes: text.length }
 }
 
 module.exports = { saveManifest, validateId, listInstalled, readManifestById, repoRoot }

@@ -199,3 +199,106 @@ test('不是装包步（建环境步）⇒ 走原有的判据', () => {
   assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), false)
   fs.rmSync(root, { recursive: true, force: true })
 })
+
+// ------------------------------------------------------------------
+// 清单核对：上游声明的包都必须在盘上（只比在不在，不比版本）
+// ------------------------------------------------------------------
+
+/** 装依赖那一步的命令形状（requirements 路线，带排除文件）。 */
+const REQ_STEP = {
+  argv: ['uv', 'pip', 'install', '-p', 'C:/x/.venv/Scripts/python.exe',
+    '-r', 'requirements.txt', '--excludes', '.wizard-excludes.txt'],
+  cwd: 'engines/myeng',
+}
+
+test('清单核对：声明的包都在盘上 ⇒ 判产物在', () => {
+  const root = makeVenv(['numpy-2.2.3.dist-info', 'soundfile-0.12.1.dist-info'])
+  const step = { ...REQ_STEP, specNames: ['numpy', 'soundfile'] }
+  assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), true)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('清单核对：只装了 torch、清单里的 soundfile 不在 ⇒ 判产物不在（不许报完成）', () => {
+  // 这就是「装了 torch 就算整步完成」的回归点：
+  //   site-packages 非空只说明装过东西，不代表清单里的包都装上了。
+  const root = makeVenv(['torch-2.6.0+xpu.dist-info'])
+  const step = { ...REQ_STEP, specNames: ['torch', 'soundfile'] }
+  assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), false)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('清单核对：被 --excludes 跳过的包不在盘上，不算没装完', () => {
+  const root = makeVenv(['numpy-2.2.3.dist-info'])
+  fs.writeFileSync(path.join(root, 'engines', 'myeng', '.wizard-excludes.txt'),
+    'torch\ntorchaudio\n')
+  const step = { ...REQ_STEP, specNames: ['numpy', 'torch', 'torchaudio'] }
+  assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), true)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('清单核对：--no-install-package 跳过的包不算没装完（uv sync 路线）', () => {
+  const root = makeVenv(['numpy-2.2.3.dist-info'])
+  const step = {
+    argv: ['uv', 'sync', '--no-install-package', 'torch'],
+    cwd: 'engines/myeng',
+    specNames: ['numpy', 'torch'],
+  }
+  assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), true)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('清单核对：写法不同但归一后相同（typing-extensions 对 typing_extensions）', () => {
+  const root = makeVenv(['typing_extensions-4.12.2.dist-info'])
+  const step = { ...REQ_STEP, specNames: ['typing-extensions'] }
+  assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), true)
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------------------
+// 声明解析：只把「本平台该装」的包算成必须装
+// ------------------------------------------------------------------
+
+const choicesMod = require(path.join(CORE_DIR, 'installChoices.js'))
+
+test('声明解析：带本平台环境标记的包算必须装，别的平台的标记不算', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-deps-'))
+  const dir = path.join(root, 'myeng')
+  fs.mkdirSync(dir, { recursive: true })
+  const other = process.platform === 'win32' ? 'linux' : 'win32'
+  fs.writeFileSync(path.join(dir, 'requirements.txt'),
+    `numpy==2.2.3\n`
+    + `always-there==1.0; sys_platform == '${process.platform}'\n`
+    + `other-platform==1.0; sys_platform == '${other}'\n`, 'utf8')
+  const names = choicesMod.declaredDeps(dir, { from: 'requirements.txt' })
+  assert.ok(names.includes('numpy'), '无条件声明的包要算')
+  assert.ok(names.includes('always-there'), '本平台标记成立的要算')
+  assert.ok(!names.includes('other-platform'), '别的平台的标记不成立，不该算必须装')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('声明解析：pyproject 的可选依赖（extras）不算运行时依赖', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-deps-'))
+  const dir = path.join(root, 'myeng')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+    '[project]\nname = "demo"\ndependencies = [\n    "numpy>=2",\n]\n\n'
+    + '[project.optional-dependencies]\ndev = [\n    "pytest",\n    "black",\n]\n', 'utf8')
+  const names = choicesMod.declaredDeps(dir, { from: 'pyproject.toml' })
+  assert.deepStrictEqual(names, ['numpy'], 'dev 组不能算成必须装')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('声明解析：锁文件路线核对的同目录 pyproject 声明，不是锁文件全量', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-deps-'))
+  const dir = path.join(root, 'myeng')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+    '[project]\nname = "demo"\ndependencies = [\n    "numpy>=2",\n]\n', 'utf8')
+  // 锁文件里全是传递依赖：拿它当清单会把它们错列成顶层依赖。
+  fs.writeFileSync(path.join(dir, 'uv.lock'),
+    'version = 1\n\n[[package]]\nname = "numpy"\nversion = "2.2.3"\n\n'
+    + '[[package]]\nname = "some-transitive-dep"\nversion = "1.0.0"\n', 'utf8')
+  const names = choicesMod.declaredDeps(dir, { from: 'uv.lock' })
+  assert.deepStrictEqual(names, ['numpy'], '锁文件路线只按 pyproject 声明核对')
+  fs.rmSync(root, { recursive: true, force: true })
+})

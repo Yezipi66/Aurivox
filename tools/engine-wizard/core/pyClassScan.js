@@ -92,7 +92,19 @@ function scanClasses (text) {
     i = j
     const inner = sig.slice(0, sig.lastIndexOf(')') >= 0 ? sig.lastIndexOf(')') : sig.length)
     const params = paramNames(inner)
-    if (params.length) cur.methods.push({ name: dm[2], params })
+    // 方法体里有没有 yield：生成器方法一次产出一段音频，返回方式只能是 generator。
+    //   这是语法事实，不是猜测；没有它，扫描只能按「有没有输出参数」推成文件或目录，
+    //   而生成器方法恰恰不收输出路径，推出来的答案是错的。
+    const bodyIndent = dm[1].length
+    let hasYield = false
+    for (let k = j + 1; k < lines.length; k++) {
+      const l = lines[k]
+      if (!l.trim()) continue
+      const ind = l.length - l.trimStart().length
+      if (ind <= bodyIndent) break          // 方法体结束
+      if (/\byield\b/.test(l)) { hasYield = true; break }
+    }
+    if (params.length) cur.methods.push({ name: dm[2], params, hasYield })
   }
   return classes
 }
@@ -143,6 +155,12 @@ function scanPythonEntries (dir, opts = {}) {
             out: scored.outNames,
             model: scored.modelNames,
           },
+          // 全部参数名（已规整成小写下划线）。挑入口时要看「这个方法收不收参考文本」，
+          //   参考文本不是独立一类，只能从名单里认（zero_shot 收 prompt_text，
+          //   cross_lingual 不收，两者其它条件一样）。
+          names: scored.names,
+          // 生成器方法：返回方式是 generator，名片要照这个写。
+          generator: m.hasYield === true,
         })
       }
     }

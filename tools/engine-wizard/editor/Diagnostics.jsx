@@ -40,11 +40,11 @@ export default function Diagnostics ({ result, loading }) {
   const broken = result.parse_error || result.error
   if (broken) {
     return (
-      <div className="collapsible">
+      <div className="collapsible wz-collapse-panel">
         <div className="collapsible-hdr" onClick={() => setOpen(!open)}>
           <span>{t('Check result', '检查结果')}</span>
           <span className="badge badge-danger">1 {t('Error', '错误')}</span>
-          <span className="field-hint" style={{ marginTop: 0 }}>{open ? '▲' : '▼'}</span>
+          <span className="field-hint" style={{ marginTop: 0 }}>{open ? '▾' : '▸'}</span>
         </div>
         {open && (
           <div className="collapsible-body">
@@ -75,13 +75,13 @@ export default function Diagnostics ({ result, loading }) {
   if (!chips.length) chips.push({ cls: 'badge-ok', n: 0, label: t('No problems', '无问题') })
 
   return (
-    <div className="collapsible">
+    <div className="collapsible wz-collapse-panel">
       <div className="collapsible-hdr" onClick={() => setOpen(!open)}>
         <span>{t('Check result', '检查结果')}</span>
         {chips.map((c) => (
           <span key={c.label} className={`badge ${c.cls}`}>{c.n} {c.label}</span>
         ))}
-        <span className="field-hint" style={{ marginTop: 0 }}>{open ? '▲' : '▼'}</span>
+        <span className="field-hint" style={{ marginTop: 0 }}>{open ? '▾' : '▸'}</span>
       </div>
 
       {open && (

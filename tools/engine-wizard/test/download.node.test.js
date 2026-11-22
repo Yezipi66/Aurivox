@@ -147,11 +147,14 @@ test('checkFileStatus — 都不存在 → missing', async () => {
   assert.strictEqual(r.size, 0)
 })
 
-// checkFileStatus — 远端没给大小，不许报 ok
+// checkFileStatus — 远端没给大小：文件在就算完成，但必须标明「未校验」
 //
-// 远端没给大小（0）时无法确认完整性，报 ok 是假绿灯：一个上次中断留下的半截文件
-// 会被当成「已下载完成」，界面上打绿勾。
-test('checkFileStatus — 远端没给大小，partial，不是 ok（不给假绿灯）', async () => {
+// 判据分两种，不能混：
+//   正式文件在、没有 .tmp   -> 完成（ok），shaVerified=false，注明完整性未校验
+//   只有 .tmp              -> 中断（partial），半截文件不许冒充完成
+// 把第一种判成残缺，会让明明下好的文件显示成中断，用户只能白下一遍；
+// 把第二种判成完成，才是真的假绿灯。
+test('checkFileStatus — 远端没给大小、正式文件在：ok 且标明未校验', async () => {
   const root = mkdtemp()
   const id = 'test-nosize'
   const dir = checkpointsDir(root, id)
@@ -159,13 +162,24 @@ test('checkFileStatus — 远端没给大小，partial，不是 ok（不给假�
   fs.writeFileSync(path.join(dir, 'model.bin'), 'half a file')
 
   const r = await checkFileStatus('model.bin', 0, root, id)
-  assert.strictEqual(r.status, 'partial',
-    '远端没给大小就等于无法确认完整性，报 ok 是假绿灯')
+  assert.strictEqual(r.status, 'ok', '信息不足不是残缺：文件在盘上就算完成')
+  assert.strictEqual(r.shaVerified, false, '没东西可比对，就不能声称校验过')
   assert.strictEqual(r.size, 11)
-  assert.ok(r.note && r.noteZh, '要带上「为什么算不完整」的说明')
+  assert.ok(r.note && r.noteZh, '要带上「完整性未校验」的说明')
 })
 
-test('checkFileStatus — 远端没给大小也不给 undefined（三态不许糊）', async () => {
+test('checkFileStatus — 远端没给大小但有 .tmp：仍算中断', async () => {
+  const root = mkdtemp()
+  const id = 'test-nosize-tmp'
+  const dir = checkpointsDir(root, id)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'model.bin.tmp'), 'half')
+
+  const r = await checkFileStatus('model.bin', 0, root, id)
+  assert.strictEqual(r.status, 'partial', '有续传标记就是没下完，不许打绿勾')
+})
+
+test('checkFileStatus — 0 / undefined / null 三种「没给」走同一条路', async () => {
   const root = mkdtemp()
   const id = 'test-nosize-undefined'
   const dir = checkpointsDir(root, id)
@@ -174,7 +188,8 @@ test('checkFileStatus — 远端没给大小也不给 undefined（三态不许�
 
   for (const missing of [undefined, null, 0]) {
     const r = await checkFileStatus('model.bin', missing, root, id)
-    assert.strictEqual(r.status, 'partial', `expectedSize=${missing} 时不许报 ok`)
+    assert.strictEqual(r.status, 'ok', `expectedSize=${missing} 与 0 同义，不许判成残缺`)
+    assert.strictEqual(r.shaVerified, false)
   }
 })
 
@@ -346,8 +361,8 @@ test('downloadFileFromUrl — 远端没给大小时，响应被截断也必须�
   const file = { name: 'model.bin', size: 0 }
   const { server, url } = await startServer((req, res) => {
     // 声明 4096 但只发 11 字节，响应被截断。
-    //   node 的 http 客户端自己就会把这种响应判成中断，在 SIZE_MISMATCH 之前先报 DOWNLOAD_ERROR。
-    //   两个码都算「判失败」，但绝不许报 ok。
+    //   node 的 http 客户端自己就会把这种响应判成中断；重试时服务端不认字节范围，
+    //   于是停在协议层。这些码都算「判失败」，但绝不许报 ok。
     res.writeHead(200, {
       'content-type': 'application/octet-stream',
       'content-length': '4096',
@@ -357,7 +372,7 @@ test('downloadFileFromUrl — 远端没给大小时，响应被截断也必须�
   try {
     const r = await downloadFileFromUrl(`${url}/file`, file, 'owner/repo', root, 'test-cl', null, 0)
     assert.strictEqual(r.ok, false, '响应被截断不许报 ok')
-    assert.ok(['SIZE_MISMATCH', 'DOWNLOAD_ERROR'].includes(r.code),
+    assert.ok(['SIZE_MISMATCH', 'DOWNLOAD_ERROR', 'RANGE_NOT_HONOURED'].includes(r.code),
       `应该是大小不符或下载中断，实际 ${r.code}`)
     const finalPath = path.join(checkpointsDir(root, 'test-cl'), file.name)
     assert.strictEqual(fs.existsSync(finalPath), false, '脏文件不许落盘')

@@ -20,8 +20,10 @@ const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject, isPipInstallable } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
 const { deviceOptions } = require('../../../lib/engines/deviceValue')
-const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
-const { reflectAndBuild } = require('./paramsFromReflect')
+// v0.1.1：磁盘三节，旁路读盘后投影成扁平视图再按字段访问。
+const { fromV011 } = require('../../../lib/engines/contract')
+const { checks: verifyChecks, runChecks, runAudioCheck, persistAcceptance } = require('./verify')
+const { reflectAndBuildAsync } = require('./paramsFromReflect')
 const { engineDirForRead } = require('./wizardRoot')
 const https = require('node:https')
 
@@ -116,11 +118,36 @@ function fencedBlocks (markdown) {
 //   snapshot_download 的来源要看 import，而 import 通常写在同一个代码块的前几行。
 function contextOf (markdown, blocks, index) {
   for (const [a, b] of blocks) {
-    if (index >= a && index < b) return markdown.slice(a, b)
+    if (index >= a && index < b) return snapshotSegment(markdown.slice(a, index))
   }
   const lineStart = markdown.lastIndexOf('\n', index) + 1
   const lineEnd = markdown.indexOf('\n', index)
   return markdown.slice(lineStart, lineEnd < 0 ? markdown.length : lineEnd)
+}
+
+/**
+ * 同一代码块里按 import 分组，返回命令所在那一组的文本。
+ *
+ * README 常把两种下载方式并排列出：先 `from modelscope import snapshot_download`
+ * 加一组命令，再 `from huggingface_hub import ...` 加另一组。整块交给来源判定时
+ * 两个库都「在场」，旧规则只能判 unknown，界面于是要求手选来源。
+ * 这里以「上一条 import 之后已经出现过命令」为分组依据：满足才从最近那条 import
+ * 截起；两条 import 紧挨着、中间没有命令时仍返回整块，保留「分不清就不猜」的判据。
+ */
+function snapshotSegment (prefix) {
+  const re = /\bfrom\s+(modelscope|huggingface_hub)(?:\.[\w.]+)?\s+import\s+(\([^)]*\)|[^\n]*)/g
+  const imports = []
+  for (const m of prefix.matchAll(re)) {
+    if (/\bsnapshot_download\b/.test(m[2])) imports.push(m)
+  }
+  if (!imports.length) return prefix
+  const last = imports[imports.length - 1]
+  const prev = imports[imports.length - 2]
+  if (prev) {
+    const between = prefix.slice(prev.index + prev[0].length, last.index)
+    if (!/\bsnapshot_download\s*\(/.test(between)) return prefix
+  }
+  return prefix.slice(last.index)
 }
 
 /**
@@ -659,7 +686,7 @@ function handleHardware (req, res) {
     const q = new URL(req.url, 'http://localhost').searchParams.get('engine')
     if (q) {
       try {
-        const m = JSON.parse(fs.readFileSync(path.join(engineDirForRead(q), 'manifest.json'), 'utf8'))
+        const m = fromV011(JSON.parse(fs.readFileSync(path.join(engineDirForRead(q), 'manifest.json'), 'utf8')))
         const { declaredInputs } = require('../../../lib/engines/declaredInputs')
         decl = declaredInputs(m.call || {}).find((x) => x.role === 'device') || null
         declared = !!decl
@@ -1191,7 +1218,7 @@ function handleDownloadManifest (req, res) {
 // 平台不解释命令、不解析输出、不判断哪一份权重该保留。找不到才退到仓库清单逐文件
 // 下载，再退到手贴文件直链。
 function readLocalManifest (dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) } catch { return null }
+  try { return fromV011(JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))) } catch { return null }
 }
 
 function scriptArgvFor (dir, file) {
@@ -1722,6 +1749,7 @@ function handleDownloadFile (req, res) {
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const { id, file } = body
+    const overwrite = body.overwrite === true
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     // 落盘子目录：上游把可选模型并排放时，文件要落在对应那一层。
     const subdir = typeof body.subdir === 'string' ? body.subdir : ''
@@ -1759,7 +1787,7 @@ function handleDownloadFile (req, res) {
       const snap = { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total }
       dl.noteProgress(file.name, snap)
       send('progress', snap)
-    }, undefined, dl.signal, { token }).then((r) => {
+    }, undefined, dl.signal, { token, overwrite }).then((r) => {
       dl.release()
       send('done', r)
       res.end()
@@ -1838,9 +1866,11 @@ function handleDownloadUrl (req, res) {
     // 与仓库文件同一套保留规则：已有同名文件又没有 .tmp 时不覆盖，
     //   确实要替换时由界面上的「重新下载」带上 overwrite。
     const tmpPath = finalPath + '.tmp'
+    const directCriterion = Number(file.size) > 0 ? 'size' : 'none'
     if (fs.existsSync(finalPath) && !fs.existsSync(tmpPath) && !overwrite) {
       const kept = {
         ok: true, code: 'KEPT_EXISTING', status: null, skipped: true,
+        state: 'skipped', criterion: directCriterion,
         size: fs.statSync(finalPath).size,
         note: 'An existing file with this name was kept. Use re-download to overwrite it.',
         noteZh: '已存在同名文件，保留未覆盖。要替换请点「重新下载」，它会覆盖这一份。',
@@ -2138,6 +2168,82 @@ function handleModels (req, res) {
 }
 
 /**
+ * GET /wizard/verify/audio-stream?id=<id>&request=<json>
+ *   A 级校验的流式版本：边跑边把宿主的输出推给界面。
+ *   普通 JSON 端点要等执行结束才回一个响应，而 A 级要几十秒（加载模型 + 合成）；
+ *   那段时间界面上什么都不动，人分不清「正在运行」和「已经卡住」。
+ *   事件：stage（开始）/ line（一行输出，err 标出是不是 stderr）/ result / done。
+ */
+function handleVerifyAudioStream (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/audio-stream')) return false
+  const url = new URL(req.url, 'http://localhost')
+  // 必须在开始推事件之前写好头：之后任何一次 writeHead 都不会生效。
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  })
+  let closed = false
+  res.on('close', () => { closed = true })
+  const send = (event, data) => {
+    if (closed || res.writableEnded) return
+    try {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    } catch { closed = true }
+  }
+  const finish = () => { if (!res.writableEnded) res.end() }
+  const id = url.searchParams.get('id')
+  if (!id) {
+    send('result', { ok: false, error: 'id is required' })
+    send('done', {})
+    finish()
+    return true
+  }
+  let request = null
+  const rawRequest = url.searchParams.get('request')
+  if (rawRequest) {
+    try { request = JSON.parse(rawRequest) } catch (e) {
+      send('result', { ok: false, error: `request 不是合法 JSON：${e.message}` })
+      send('done', {})
+      finish()
+      return true
+    }
+  }
+  void (async () => {
+    send('stage', { name: 'starting' })
+    try {
+      const audio = await runAudioCheck(id, {
+        audio: 'A', request,
+        // 一行一推：上游可能一次给半行，前端自己缓冲拼接。
+        onLine: (text, isErr) => send('line', { text: String(text), err: !!isErr }),
+      })
+      if (!audio.audio_path) {
+        const found = findVerifyAudio(id)
+        if (found) audio.audio_path = found
+      }
+      // A 级执行完成后，把结论写进名片 acceptance 节。尽力而为：写失败不遮住音频结果。
+      if (audio.level === 'A') {
+        try {
+          const saved = persistAcceptance(id, { request, result: audio })
+          audio.acceptance = saved.ok ? saved.acceptance : { write_error: saved.error }
+        } catch (e) {
+          audio.acceptance = { write_error: String((e && e.message) || e) }
+        }
+      }
+      send('result', { checks: { audio } })
+    } catch (e) {
+      send('result', { checks: { audio: { ok: false, level: 'A',
+        error: String((e && e.message) || e) } } })
+    }
+    send('done', {})
+    finish()
+  })()
+  return true
+}
+
+/**
  * GET /wizard/verify/checks?id=<id>&audio=A|B[&request=<json>]
  *   跑第 5 步的校验。audio 默认 B（只验宿主谈得拢，不合成）；
  *   audio=A 时要真合成一次，这时才会产出音频本体供波形用。
@@ -2150,7 +2256,14 @@ function handleVerifyChecks (req, res) {
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
 
-  const audioLevel = url.searchParams.get('audio') === 'A' ? 'A' : 'B'
+  const audioParam = url.searchParams.get('audio')
+  const audioLevel = audioParam === 'A' ? 'A' : 'B'
+  // fast=1：只做纯查盘的两道（解释器/入口在不在、权重齐不齐），跳过两处会起进程的检查。
+  //   env_deep（用引擎解释器 import）与声音检查各要十几秒；
+  //   与查盘结果塞进同一个响应，界面在那段时间里一个字段都拿不到，看起来像「什么都没读到」。
+  //   进来先读状态（毫秒级），再单独检验（慢）。
+  const fast = url.searchParams.get('fast') === '1'
+  const skipAudio = fast || audioParam === 'none'
   let request = null
   const rawRequest = url.searchParams.get('request')
   if (rawRequest) {
@@ -2159,11 +2272,23 @@ function handleVerifyChecks (req, res) {
     }
   }
 
-  const r = runChecks(id, { deep: true })
+  const r = runChecks(id, { deep: !fast })
   // runChecks 在名片解析不出时只回 {ok, code, error, errorZh}，没有 checks 字段。
   //   直接往 r.checks 上挂会抛 TypeError，变成 HTTP 500 而不是如实报错。
   if (!r.checks) {
     r.checks = {}
+  }
+  // 第 3 道只核对名片声明的文件。启动阶段自行拉取的资源另列一份，
+  //   不把「名片声明的文件齐全」读成「运行所需资源齐全」。
+  //   这份清单只读盘，与声音检查无关，静态返回时一并带上。
+  if (r.checks.checkpoints) {
+    const root = projectRoot() || ''
+    const dir = path.join(root, 'engines', id)
+    r.checks.checkpoints.external = fs.existsSync(dir) ? scanRuntimeDownloads(dir) : []
+  }
+  if (skipAudio) {
+    json(res, r.ok ? 200 : 400, r)
+    return true
   }
   // runAudioCheck 是 async：stdio 形态的引擎要先拉一台临时宿主再验。
   //   handler 仍同步返回 true 接单（同 handleProbe 的模式），json 在异步体里回。
@@ -2175,14 +2300,15 @@ function handleVerifyChecks (req, res) {
       const found = findVerifyAudio(id)
       if (found) audio.audio_path = found
     }
-    r.checks.audio = audio
-    // 第 3 道只核对名片声明的文件。启动阶段自行拉取的资源另列一份，
-    //   不把「名片声明的文件齐全」读成「运行所需资源齐全」。
-    if (r.checks.checkpoints) {
-      const root = projectRoot() || ''
-      const dir = path.join(root, 'engines', id)
-      r.checks.checkpoints.external = fs.existsSync(dir) ? scanRuntimeDownloads(dir) : []
+    if (audio.level === 'A') {
+      try {
+        const saved = persistAcceptance(id, { request, result: audio })
+        audio.acceptance = saved.ok ? saved.acceptance : { write_error: saved.error }
+      } catch (e) {
+        audio.acceptance = { write_error: String((e && e.message) || e) }
+      }
     }
+    r.checks.audio = audio
     json(res, r.ok ? 200 : 400, r)
   })()
   return true
@@ -2223,6 +2349,9 @@ function audioDirFor (id) {
 function handleVerifyAudio (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/audio')) return false
+  // audio-stream 是另一个端点（A 级流式校验）：它的前缀与这里相同，
+  //   不排除的话会被本函数接走，回一句「没有音频文件」。
+  if (req.url.startsWith('/wizard/verify/audio-stream')) return false
   const url = new URL(req.url, 'http://localhost')
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
@@ -2428,6 +2557,14 @@ function handleVerify (req, res) {
       // runAudioCheck 可能要先拉临时宿主：stdio 形态没有常驻地址。
       void (async () => {
         const r = await runAudioCheck(id, { audio: body.audio, request: body.request })
+        if (r.level === 'A') {
+          try {
+            const saved = persistAcceptance(id, { request: body.request, result: r })
+            r.acceptance = saved.ok ? saved.acceptance : { write_error: saved.error }
+          } catch (e) {
+            r.acceptance = { write_error: String((e && e.message) || e) }
+          }
+        }
         json(res, r.ok ? 200 : 400, r)
       })()
       return
@@ -2538,7 +2675,7 @@ function handleParams (req, res) {
     // opts.manifest：把名片原文传下去，靠它补上 call.bind 指向的真实入参（反射器读不到
     //   bind，而那是这台引擎真实必填的 text / output_path）。不传的后果不是报错，
     //   是「界面上少两格必填」，且没有任何信号。
-    const r = reflectAndBuild(spec.value, {
+    const r = await reflectAndBuildAsync(spec.value, {
       methods: body.methods,
       existing: body.existing,
       existingMaps: body.existingMaps,
@@ -2601,6 +2738,31 @@ function handleCliArgs (req, res) {
   return true
 }
 
+/**
+ * python 形态下挑一条候选去反射。
+ *
+ * 判据与界面写回入口那一处同一套：名片绑了参考文本就优先「同时收参考文本与参考音频」
+ *   的方法，绑了参考音频就优先收参考音频的方法，名片写了模块名就只在同模块里挑，
+ *   都没有则取评分最高的第一条。
+ * 之所以要在这里挑：python 形态的参数只能靠运行时反射，反射又需要入口。等使用者
+ *   先手填入口再扫第二次，是把一步拆成两步；静态候选本来就是读源码得到的，够用。
+ */
+function pickPythonEntryForReflect (call, entries) {
+  const list = Array.isArray(entries) ? entries.filter(Boolean) : []
+  if (!list.length) return null
+  const bind = (call && call.bind) || {}
+  const pool = (call && call.module) ? list.filter((e) => e.module === call.module) : list
+  const src = pool.length ? pool : list
+  const hasRef = (e) => Array.isArray(e.params && e.params.ref) && e.params.ref.length > 0
+  const hasRefText = (e) => Array.isArray(e.names) &&
+    e.names.some((n) => /^(?:prompt|ref|reference)[-_]?text$/i.test(String(n)))
+  const pick = (bind.ref_text && src.find((e) => hasRef(e) && hasRefText(e))) ||
+    (bind.ref_audio && src.find(hasRef)) ||
+    src[0]
+  if (!pick || !pick.module || !pick.className || !pick.method) return null
+  return { module: pick.module, class: pick.className, method: pick.method }
+}
+
 // POST /wizard/discover：自动探测引擎形态并发现参数
 // 平台不假设引擎形态，先探测再决定：
 //   1. 读 engines/<id>/ 看有没有 argparse 源码 → 有则跑 cli 扫描
@@ -2635,8 +2797,14 @@ function handleDiscover (req, res) {
     let manifest = {}
     const mf = path.join(dir, 'manifest.json')
     if (fs.existsSync(mf)) {
-      try { manifest = JSON.parse(fs.readFileSync(mf, 'utf8')) } catch { manifest = {} }
+      try { manifest = fromV011(JSON.parse(fs.readFileSync(mf, 'utf8'))) } catch { manifest = {} }
     }
+
+    // 形态由调用方指定时，只跑那一条路。
+    //   python 形态不需要 cli 的 argparse 扫描：那一步要解析整个仓库的脚本，
+    //   结果又被按形态筛掉，白花的成本全落在「扫描参数」的等待上。
+    //   没给形态时两条都跑，服务还不认识形态的调用方照旧能用。
+    const askedKind = body.kind === 'cli' || body.kind === 'python' ? body.kind : null
 
     let cliHelpResult = null
     let cliDraft = null
@@ -2644,7 +2812,8 @@ function handleDiscover (req, res) {
     // README 与打包声明点过名的模块：即便没有对应的源文件，也要进候选清单。
     let declaredModules = []
     let hasCli = false
-    try {
+    // python 形态不跑 cli 全仓扫描：它与要拿的方法签名无关，却是「扫描参数」最慢的一段。
+    if (askedKind !== 'python') try {
       const { findCliFiles } = require('./cliHelp')
       const cliFiles = findCliFiles(dir)
       hasCli = cliFiles.length > 0
@@ -2729,13 +2898,28 @@ function handleDiscover (req, res) {
       notes.push(`CLI 探测异常：${e.message}`)
     }
 
+    // Python 形态的入口候选先扫：只读文本、不 import，很快。它的用处不止「摆给人选」：
+    //   名片还没写入口时，反射根本跑不起来，而 python 形态的参数只能靠反射拿。
+    //   所以先挑一条候选去反射，让「切形态 → 扫描」一次拿到参数，而不是先补入口再扫第二次。
+    let pythonEntries = []
+    try {
+      const { scanPythonEntries } = require('./pyClassScan')
+      pythonEntries = scanPythonEntries(dir)
+    } catch (e) {
+      notes.push(`python 入口静态扫描失败：${e.message}`)
+    }
+    // 挑法与界面写回入口的那一处同一套判据：名片绑了参考文本就优先收参考文本的方法，
+    //   绑了参考音频就优先收参考音频的方法，否则取评分最高的第一条。
+    const reflectEntry = pickPythonEntryForReflect(manifest.call || {}, pythonEntries)
+
     let hasPython = false
     let pythonDraft = null
     let pythonSpec = null
     try {
       const { buildSpec } = require('./paramsFromReflect')
-      // 不用 forCli：需要完整的 call.module/class 校验
-      pythonSpec = buildSpec({ id })
+      // 不用 forCli：需要完整的 call.module/class 校验。入口缺失时用候选补，
+      //   buildSpec 认 module / class / method 这几个覆盖项。
+      pythonSpec = buildSpec(reflectEntry ? { id, ...reflectEntry } : { id })
       if (pythonSpec.ok) {
         hasPython = true
         notes.push(`名片声明了 python 类：${pythonSpec.value.module}.${pythonSpec.value.class}`)
@@ -2752,20 +2936,9 @@ function handleDiscover (req, res) {
       notes.push(`python 形态探测异常：${e.message}`)
     }
 
-    // Python 形态的入口候选：名片还没写 call.module / call.class 时，反射根本跑不起来，
-    //   入口那一格只能靠人背模块名。这里做一次静态扫描（只读文本，不 import），
-    //   把「哪个类、哪个方法」摆出来；选中后写进名片，之后再扫描就能反射出参数。
-    let pythonEntries = []
-    if (!hasPython) {
-      try {
-        const { scanPythonEntries } = require('./pyClassScan')
-        pythonEntries = scanPythonEntries(dir)
-        if (pythonEntries.length) {
-          notes.push(`静态扫描到 ${pythonEntries.length} 个 python 入口候选（未导入任何模块）`)
-        }
-      } catch (e) {
-        notes.push(`python 入口静态扫描失败：${e.message}`)
-      }
+    // 静态候选已在上面扫过（反射要先挑一条用）。这里只补一句数量说明。
+    if (pythonEntries.length) {
+      notes.push(`静态扫描到 ${pythonEntries.length} 个 python 入口候选（未导入任何模块）`)
     }
 
     if (!hasCli && !hasPython) {
@@ -2790,6 +2963,8 @@ function handleDiscover (req, res) {
         entry: null,
         entry_candidates: libraryCandidates,
         python_entries: pythonEntries,
+      // 反射时实际用的那条入口：界面写回入口时优先用它，判据只留一份。
+      python_entry_suggested: reflectEntry,
         declare_hints: { audio_params: [], weight_slots: [], output_formats: [], format_arg: null },
         suggested_call: null,
         notes,
@@ -2807,8 +2982,8 @@ function handleDiscover (req, res) {
         notes.push('引擎环境未就绪，先完成第 2 步')
       } else {
         try {
-          const { reflectAndBuild } = require('./paramsFromReflect')
-          pythonDraft = reflectAndBuild(pythonSpec.value, { manifest })
+          const { reflectAndBuildAsync } = require('./paramsFromReflect')
+          pythonDraft = await reflectAndBuildAsync(pythonSpec.value, { manifest })
           if (pythonDraft.ok) {
             const count = pythonDraft.parameters ? pythonDraft.parameters.length : 0
             notes.push(`python 反射得到 ${count} 个参数`)
@@ -2854,9 +3029,15 @@ function handleDiscover (req, res) {
       notes.push(`入口候选清单生成失败：${e.message}`)
     }
     const pythonParams = pythonDraft && pythonDraft.ok ? pythonDraft.parameters : []
-    const { params, groups } = merge(cliArgs, pythonParams)
+    // 形态由名片声明（call.kind），扫描按它只交一条路的参数。
+    //   cli 的开关表与 python 的方法签名是两套东西：混在一起返回，前端就要按 source
+    //   再筛一遍，而那一筛迟早漏（漏一次就是把训练脚本的开关铺进合成参数）。
+    //   没给 kind 时退回「两条都给」，这条只服务于还不知道形态的调用方。
+    const takeCli = askedKind ? askedKind === 'cli' : hasCli
+    const takePython = askedKind ? askedKind === 'python' : hasPython
+    const { params, groups } = merge(takeCli ? cliArgs : [], takePython ? pythonParams : [])
 
-    const source = hasCli && hasPython ? 'both' : (hasCli ? 'cli' : 'python')
+    const source = takeCli && takePython ? 'both' : (takeCli ? 'cli' : 'python')
 
     json(res, 200, {
       ok: true,
@@ -2878,6 +3059,8 @@ function handleDiscover (req, res) {
       // python 形态的入口候选：{file, module, className, method, score, params}
       //   只在名片还没声明 python 类时给（有声明时反射结果更准）。
       python_entries: pythonEntries,
+      // 反射时实际用的那条入口：界面写回入口时优先用它，判据只留一份。
+      python_entry_suggested: reflectEntry,
       // 可选能力的嗅探建议：音频类输入、多权重位、输出格式。只送建议，
       //   写不写进名片由前端按「已有声明不覆盖」决定；拿不准的不出现在这里。
       declare_hints: (() => {
@@ -3068,7 +3251,7 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleDownloadEntries, handleEngineDownload,
   scanDocDownloadCommands,
-  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyAudioStream, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，

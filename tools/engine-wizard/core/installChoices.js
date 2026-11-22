@@ -320,12 +320,84 @@ function isOpaqueBuildConfig (from) {
 
 function declaredSpecs (dir, guess, route) {
   if (isOpaqueBuildConfig(guess && guess.from)) return []
+  // 锁文件路线：核对的清单是同目录 pyproject 的声明。
+  //   锁文件本身含全部传递依赖，拿它当清单会把传递依赖全列成顶层依赖
+  //   （与界面 planDependencies 同一口径：lock 只用来判 torch 后端）。
+  let from = guess && guess.from
+  if (route === 'lock' || /uv\.lock$/i.test(from || '')) from = 'pyproject.toml'
   let text = ''
-  try { text = fs.readFileSync(path.join(dir, guess.from), 'utf8') } catch (e) { return [] }
-  if (route === 'pyproject') return require('./probe').probePyproject(text).dependencies || []
+  try { text = fs.readFileSync(path.join(dir, from), 'utf8') } catch (e) { return [] }
+  if (route === 'pyproject' || /pyproject\.toml$/i.test(from)) {
+    return require('./probe').probePyproject(text).dependencies || []
+  }
   return text.split(/\r?\n/)
     .map((l) => l.replace(/#.*$/, '').split(';')[0].trim())
     .filter((l) => l && !l.startsWith('-') && !/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(l))
+}
+
+/**
+ * 这条依赖声明的环境标记在当前平台上是否成立。
+ *
+ * 只判两种最常用的平台标记（`sys_platform` / `platform_system` 的等值比较）：
+ *   上游常见写法是 `deepspeed==0.15.1; sys_platform == 'linux'`，
+ *   在 Windows 上那行本来就不装，判据不能要求它在盘上。
+ * 其余标记（python_version 之类）不评估，保守按「要装」：
+ *   宁可多要求一次重装，也不要误判为可跳过而漏包。
+ */
+function markerAllowsPlatform (marker) {
+  const m = String(marker || '').trim()
+  if (!m) return true
+  const sp = m.match(/sys_platform\s*==\s*['"]([^'"]+)['"]/)
+  if (sp) return sp[1].toLowerCase() === String(process.platform).toLowerCase()
+  const ps = m.match(/platform_system\s*==\s*['"]([^'"]+)['"]/)
+  if (ps) {
+    const name = { win32: 'windows', linux: 'linux', darwin: 'darwin' }[process.platform] || ''
+    return ps[1].toLowerCase() === name
+  }
+  return true
+}
+
+/**
+ * 上游声明的依赖包名（干净列表，供完成判定用）。
+ *
+ * 与 declaredSpecs 的差别：
+ *   ① 返回「包名」（PEP 503 归一），不带版本约束：完成判定只问「装上没有」，
+ *      不比版本（版本由 uv 按 index / 锁文件决定；torch 装出来带 +xpu 后缀）。
+ *   ② 按环境标记过滤：`; sys_platform == 'linux'` 这类在当前平台不成立的条目
+ *      不算「必须装」。
+ *   ③ 锁文件路线读同目录 pyproject 的声明：锁文件含全部传递依赖，
+ *      拿它当清单会把传递依赖全列成顶层依赖。
+ * 读不到清单 / 平台不解析的构建配置 ⇒ null（判据退回老路）。
+ *
+ * @param {string} dir 引擎目录
+ * @param {object} guess suggestEnvCommand 的结果（取 from）
+ * @returns {string[]|null}
+ */
+function declaredDeps (dir, guess) {
+  const from = guess && guess.from
+  if (!from) return null
+  if (isOpaqueBuildConfig(from)) return null
+  const isLock = /uv\.lock$/i.test(from)
+  const isPyproject = /pyproject\.toml$/i.test(from)
+  const readFrom = (isLock || isPyproject) ? 'pyproject.toml' : from
+  let text = ''
+  try { text = fs.readFileSync(path.join(dir, readFrom), 'utf8') } catch (e) { return null }
+
+  const entries = (isLock || isPyproject)
+    ? (require('./probe').probePyproject(text).dependencies || [])
+    : text.split(/\r?\n/)
+      .map((l) => l.replace(/#.*$/, '').trim())
+      .filter((l) => l && !l.startsWith('-') && !/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(l))
+
+  const names = entries.map((raw) => {
+    const s = String(raw)
+    const semi = s.indexOf(';')
+    const marker = semi >= 0 ? s.slice(semi + 1) : ''
+    if (!markerAllowsPlatform(marker)) return null
+    const name = (semi >= 0 ? s.slice(0, semi) : s).split(/[<>=!~\[]/)[0].trim()
+    return name ? normName(name) : null
+  }).filter(Boolean)
+  return names.length ? names : null
 }
 
 function pipRoute (dir, guess, ch, recommended, route, write) {
@@ -656,4 +728,6 @@ module.exports = {
   declaredTorchFamily,
   versionOverrideRoute,
   specsFromManifestText,
+  declaredSpecs,
+  declaredDeps,
 }

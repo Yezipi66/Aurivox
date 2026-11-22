@@ -9,22 +9,28 @@ import { cleanPathInput, refInRange } from '../../../web/src/lib/refAudio'
 import { api } from '../../../web/src/lib/api'
 import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import Stage from './Stage'
+import StepCard from './StepCard'
 import { REF_MIME } from './paramDrop'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 import { readSse } from './downloadRunner'
 import { loadSession, saveSession } from './useInstallSession'
+import { BOX, BOX_GAP } from './boxStyle'
 
 // 一份校验结果里，语音那道跑的是哪一级（'A' | 'B'）。取不到就当空串：
 //   没有 audio 段的结果按「没有档位」处理，不比大小。
 const levelOf = (r) => (r && r.checks && r.checks.audio && r.checks.audio.level) || ''
 
-export function StepVerify ({ id, escape }) {
-  const { t } = useT()
+export function StepVerify ({ id, escape, frame }) {
+  const { t, lang } = useT()
+  // 步骤大框的头由外层按固定步骤传进来；单测直接渲染本组件时不传，给一份等价兜底。
+  const stepFrame = frame || { title: t('Verify', '检查'), done: false, onClose: () => {} }
   // 第 5 步的会话段：使用者填的文本与视图开合按引擎存，切页重挂后接回来。
   //   只在挂载时读一次；校验结果与进度是派生数据，不存、靠重取。
   const saved = loadSession(id) || {}
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
+  // 静态核对（fast）读取中：它比声音检查快得多，但也不能让首屏静默。
+  const [preflightLoading, setPreflightLoading] = useState(false)
   // 正在执行的是哪一级。首屏会自动执行 B 级，那期间 A 级按钮不能跟着显示「正在运行…」：
   //   人没点它，它却在转，是这页最容易误导的一处。
   const [runningLevel, setRunningLevel] = useState(null)
@@ -41,8 +47,9 @@ export function StepVerify ({ id, escape }) {
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
   const [refAudio, setRefAudio] = useState(saved.refAudio || '')
   const [refText, setRefText] = useState(saved.refText || '')
-  // 右侧参考音频侧栏：直接复用 9886 的资产数据源——5199 的 /api 已代理到 9886，
-  //   这里调的 /api/assets/* 与 9886 右侧栏读的是同一份数据（切片自带对齐文本）。
+  // 右侧参考音频侧栏：资产在 assets/<voice>/ 下，向导直接读盘（/wizard/assets/*），
+  //   不要求平台后端（9886）已启动。取法与 9886 侧栏一致：切片自带对齐文本，
+  //   原始音频按文件名取 raw_opt.list 的转写。
   //   每条可拖到左侧参考音频框，路径与文本一次写回，不必手填逐字稿。
   const [voices, setVoices] = useState([])
   const [assetVoice, setAssetVoice] = useState('')
@@ -54,8 +61,17 @@ export function StepVerify ({ id, escape }) {
   // 取不到资产列表：多数是平台后端（9886）未启动。这一格拿不到东西时要说清原因，
   //   否则界面只剩一个空列表，看起来像「这个资产没有切片」。
   const [assetDown, setAssetDown] = useState(false)
-  // 三块静态校验默认折叠：结论已经在上方「校验结论」里，展开只为看证据。
+  // 两块机械式检验各自开合：证据默认收起（展开只为看三块原始输出），
+  //   结论默认展开（它是进来最想看的结果，收起就回到「刚进来什么也没有」）。
   const [checksOpen, setChecksOpen] = useState(saved.checksOpen === true)
+  const [overviewOpen, setOverviewOpen] = useState(saved.overviewOpen !== false)
+  // A 级校验的实时输出：点击后立刻开框，一行一行往上堆。
+  //   不这样做的话，几十秒的加载与合成期间界面完全静止，
+  //   人分不清「正在运行」和「已经卡住」。
+  //   每行带 err 标记：stderr 用 .log-line.error 染红，正常的引擎输出保持原色。
+  const [streamLines, setStreamLines] = useState([])
+  const [streamRunning, setStreamRunning] = useState(false)
+  const streamAbort = React.useRef(null)
   // 右侧参考音频抽屉：与第 4 步同一套 Stage Drawer（可收起 / 拖宽 / 全屏）。
   const [rightOpen, setRightOpen] = useState(saved.rightOpen !== false)
   const [rightFull, setRightFull] = useState(saved.rightFull === true)
@@ -222,20 +238,21 @@ export function StepVerify ({ id, escape }) {
     if (!id) return
     saveSession(id, '', {
       synthText, refAudio, refText, device,
-      checksOpen, rightOpen, rightFull,
+      checksOpen, overviewOpen, rightOpen, rightFull,
     })
-  }, [id, synthText, refAudio, refText, device, checksOpen, rightOpen, rightFull])
+  }, [id, synthText, refAudio, refText, device, checksOpen, overviewOpen, rightOpen, rightFull])
 
-  // 侧栏的音色列表：与 9886 的 /api/voices 同源。builtin 的 Base model 没有资产目录，
-  //   默认落到第一个有资产目录的音色，进这一步右侧就有东西可拖，不必先选一次。
+  // 侧栏的音色列表：读平台的注册表 data/voices.json（/wizard/assets/voices 直接读盘）。
+  //   底模没有资产目录，默认落到第一个音色，进这一步右侧就有东西可拖，不必先选一次。
   useEffect(() => {
     let live = true
-    api('/api/voices')
+    api('/wizard/assets/voices')
       .then((j) => {
         if (!live || !j) return
-        if (!j.ok) { setAssetDown(true); return }
+        // 形状不对也算「读不到」：只看 HTTP 成功的话，别的版本或别的服务回一份
+        //   结构不同的 JSON，会静默变成空列表，看起来像这个项目没有音色资产。
+        if (!j.ok || !j.data || !Array.isArray(j.data.voices)) { setAssetDown(true); return }
         setAssetDown(false)
-        if (!Array.isArray(j.data.voices)) return
         const usable = j.data.voices.filter((v) => !v.builtin)
         setVoices(usable)
         setAssetVoice((cur) => cur || (usable[0] && usable[0].id) || '')
@@ -244,17 +261,17 @@ export function StepVerify ({ id, escape }) {
     return () => { live = false }
   }, [])
 
-  // 选中音色后拉它的切片与原始音频：正是 9886 右侧栏用的那两份端点。
+  // 选中音色后拉它的切片与原始音频：都是向导自己的端点，平台进程不必启动。
   useEffect(() => {
     if (!assetVoice) { setAssetSegs([]); setAssetRaw([]); return undefined }
     let live = true
     setAssetLoading(true)
     Promise.all([
-      api(`/api/assets/${encodeURIComponent(assetVoice)}/segments`)
+      api(`/wizard/assets/segments?voice=${encodeURIComponent(assetVoice)}`)
         .then((j) => (j && j.ok && j.data.segments && Array.isArray(j.data.segments.segments))
           ? j.data.segments.segments : [])
         .catch(() => []),
-      api(`/api/assets/${encodeURIComponent(assetVoice)}/raw-list`)
+      api(`/wizard/assets/raw-list?voice=${encodeURIComponent(assetVoice)}`)
         .then((j) => (j && j.ok && Array.isArray(j.data.raw)) ? j.data.raw : [])
         .catch(() => []),
     ]).then(([segs, raw]) => {
@@ -288,6 +305,12 @@ export function StepVerify ({ id, escape }) {
   //   会跟着重跑，又发一次 B 级。
   const resultsRef = React.useRef(null)
 
+  // 结论的「贵贱」顺序：静态核对 < B 级 < A 级。
+  //   先回的快结果（静态）不许覆盖已经拿到的更贵结论，
+  //   否则先到的 A 级会被后到的静态结论抹掉声音那一项。
+  const LEVEL_RANK = { '': 0, B: 1, A: 2 }
+  const rankOf = (r) => LEVEL_RANK[levelOf(r)] || 0
+
   const runChecks = React.useCallback((level, request, force = false) => {
     if (!id) return
     const t0 = Date.now()
@@ -299,9 +322,9 @@ export function StepVerify ({ id, escape }) {
     fetch(`/wizard/verify/checks?${q.toString()}`)
       .then(r => r.json())
       .then((j) => {
-        // 晚到的 B 级不许覆盖已经拿到的 A 级结论。补齐权重之后重跑前置要例外：
+        // 晚到的、或更便宜的结论不许覆盖已经拿到的更贵结论。补齐权重之后重跑前置要例外：
         //   那时 A 级的结论已经过期，调用方会显式要求覆盖。
-        if (!force && levelOf(resultsRef.current) === 'A' && levelOf(j) === 'B') return
+        if (!force && rankOf(j) < rankOf(resultsRef.current)) return
         resultsRef.current = j
         setResults(j)
         setLastRun({
@@ -319,6 +342,128 @@ export function StepVerify ({ id, escape }) {
       .finally(() => { setLoading(false); setRunningLevel(null) })
   }, [id])
 
+  // A 级校验的流式版本：点击即开框，边跑边把宿主的输出堆上去。
+  //   普通 JSON 端点要等几十秒才回一个响应，那段时间界面完全静止，
+  //   人分不清「正在运行」和「已经卡住」。
+  const runAudioStream = React.useCallback((request) => {
+    if (!id) return
+    const t0 = Date.now()
+    setLoading(true)
+    setRunningLevel('A')
+    setStartedAt(t0)
+    setStreamLines([])
+    setStreamRunning(true)
+    if (streamAbort.current) {
+      try { streamAbort.current.abort() } catch { /* 旧的已经断了 */ }
+    }
+    const ctrl = new AbortController()
+    streamAbort.current = ctrl
+    const q = new URLSearchParams({ id })
+    if (request) q.set('request', JSON.stringify(request))
+
+    const handleEvent = (ev, payload) => {
+      if (ev === 'line') {
+        // 一个 chunk 可能带多行：拆成一行一个节点，染色才落得到行上。
+        //   只留最近 600 行：整段日志的价值在「刚刚发生了什么」，
+        //   无限堆下去会把内存和滚动条一起拖垮。
+        const parts = String(payload.text || '')
+          .split(/\r?\n/)
+          .filter((line) => line.length > 0)
+        if (parts.length) {
+          const err = !!payload.err
+          setStreamLines((cur) => [
+            ...cur.slice(-600),
+            ...parts.map((text) => ({ text, err })),
+          ])
+        }
+      } else if (ev === 'result' && payload && payload.checks) {
+        const prev = resultsRef.current || {}
+        const next = { ...prev, checks: { ...(prev.checks || {}), ...payload.checks } }
+        resultsRef.current = next
+        setResults(next)
+        const audio = payload.checks.audio || {}
+        setLastRun({ level: 'A', at: t0, ms: Date.now() - t0, ok: audio.ok === true })
+      }
+    }
+
+    fetch(`/wizard/verify/audio-stream?${q.toString()}`, { signal: ctrl.signal })
+      .then(async (resp) => {
+        if (!resp.body || !resp.body.getReader) throw new Error('stream is not supported here')
+        const reader = resp.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          // SSE 以空行分隔事件；一次读可能拿到半个，攒够再切。
+          let cut = buf.indexOf('\n\n')
+          while (cut >= 0) {
+            const chunk = buf.slice(0, cut)
+            buf = buf.slice(cut + 2)
+            let ev = 'message'
+            let data = ''
+            for (const line of chunk.split('\n')) {
+              if (line.startsWith('event: ')) ev = line.slice(7)
+              else if (line.startsWith('data: ')) data += line.slice(6)
+            }
+            if (data) {
+              try { handleEvent(ev, JSON.parse(data)) } catch { /* 不完整的 JSON 丢掉 */ }
+            }
+            cut = buf.indexOf('\n\n')
+          }
+        }
+      })
+      .catch((e) => {
+        if (e && e.name === 'AbortError') return
+        setStreamLines((cur) => [...cur, `\n${String((e && e.message) || e)}\n`])
+      })
+      .finally(() => {
+        setLoading(false)
+        setRunningLevel(null)
+        setStreamRunning(false)
+        streamAbort.current = null
+      })
+  }, [id])
+
+  // 先读状态：只做纯查盘的两道（解释器/入口在不在、权重齐不齐），本机毫秒级。
+  //   读取期间也要有加载提示：哪怕只要一秒，静默的首屏看起来和「刷新了」没有分别。
+  const runPreflight = React.useCallback(() => {
+    if (!id) return
+    setPreflightLoading(true)
+    fetch(`/wizard/verify/checks?id=${encodeURIComponent(id)}&fast=1`)
+      .then(r => r.json())
+      .then((j) => {
+        if (rankOf(j) < rankOf(resultsRef.current)) return
+        resultsRef.current = j
+        setResults(j)
+      })
+      .catch(() => { /* 静态核对失败不打断后面的检验 */ })
+      .finally(() => setPreflightLoading(false))
+  }, [id])
+
+  // 「重新检验」只重跑这一框的三道静态核对（解释器/入口、模块导入、权重），
+  //   不碰语音合成：那一项有自己的 A 级按钮，重跑它要几十秒，混进来就成了「点了没反应」。
+  //   端点用 audio=none 而不是 fast=1：fast 会跳过模块导入那道，重新检验就不能漏掉它。
+  const recheckEnvironment = React.useCallback(() => {
+    if (!id) return
+    setPreflightLoading(true)
+    fetch(`/wizard/verify/checks?id=${encodeURIComponent(id)}&audio=none`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j || !j.checks) return
+        const prev = resultsRef.current || {}
+        // 合成那项是另一框的结论，重跑静态核对不许把它抹掉：
+        //   以旧结果为底，只覆盖三道静态核对，合成一项原样留下。
+        const next = { ...prev, checks: { ...(prev.checks || {}), ...j.checks } }
+        resultsRef.current = next
+        setResults(next)
+      })
+      // 请求失败时不覆盖已有结果，避免把已经显示的检查项清成空白。
+      .catch(() => {})
+      .finally(() => setPreflightLoading(false))
+  }, [id])
+
   // 运行中就按半秒一支表：A 级跑几分钟时，界面必须能看出它仍在运行。
   useEffect(() => {
     if (!loading) return undefined
@@ -326,9 +471,14 @@ export function StepVerify ({ id, escape }) {
     return () => clearInterval(timer)
   }, [loading])
 
+  // 进这一步的顺序：先读状态，再检验。
+  //   静态核对先回，界面立刻有「环境 / 模块 / 权重」三项结论；
+  //   声音检查随后自己发起，完成后只补 audio 那一项。
+  //   反过来做（先检验）会让界面在十几秒里一片空白，像是没读到任何东西。
   useEffect(() => {
+    runPreflight()
     runChecks('B', null)
-  }, [runChecks])
+  }, [runPreflight, runChecks])
 
   const runPostDownload = async () => {
     if (!id || postBusy) return
@@ -420,10 +570,71 @@ export function StepVerify ({ id, escape }) {
       for (const c of i.checks) {
         if (!c) continue
         lines.push(`${c.module || c.class || ''} · ${c.ok ? t('imported', '导入通过') : t('import failed', '导入失败')}`
-          + (c.detail ? ` · ${c.detail}` : ''))
+          + (c.detail ? ` · ${pickLang(c.detail, c.detailZh || c.detail)}` : ''))
       }
     }
     return lines
+  }
+
+  // env_deep 的三种语义分层：stdout 原文进黑框，诊断结论与办法各占一层，
+  //   环境事实单独一组。它们落在 problems 里、用 field-hint 平铺时是一整段，
+  //   分不清哪句是引擎输出、哪句是平台判断，所以按后端的结构化副本分开摆。
+  const renderImportFindings = (check) => {
+    const findings = Array.isArray(check && check.import_diagnostics)
+      ? check.import_diagnostics : []
+    if (!findings.length) return null
+    const info = (check && check.info) || {}
+
+    // 逐条导入结论是探针 JSON 里的 checks 项，不是进程 stdout：探针的 stdout
+    //   是协议通道，模块顶层的 print 在导入期被吞。它和另外两道静态核对的明细
+    //   性质相同，用同一种 field-hint 平铺，不造一个「输出」黑框冒充原始输出。
+    const detailLines = []
+    for (const c of (Array.isArray(info.checks) ? info.checks : [])) {
+      if (!c) continue
+      detailLines.push(
+        `${c.module || c.class || ''} · ${c.ok ? t('imported', '导入通过') : t('import failed', '导入失败')}`
+        + (c.detail ? ` · ${pickLang(c.detail, c.detailZh || c.detail)}` : ''))
+    }
+    const causes = findings.map((f) => pickLang(f.causeEn, f.cause)).filter(Boolean)
+    const hints = findings.map((f) => pickLang(f.hintEn, f.hint)).filter(Boolean)
+    const factLines = []
+    if (info.python && info.python.version) factLines.push(t('Python version: ', 'Python 版本：') + info.python.version)
+    if (info.paths && info.paths.python) factLines.push(t('Interpreter: ', '解释器：') + info.paths.python)
+    // 缺包的安装命令用第 2 步同款命令框给出：venv 路径是探针查到的真实路径，
+    //   包名来自诊断结论。两者都在此处填进模板，界面上不留下花括号占位符。
+    const venvPython = info.paths && info.paths.python ? info.paths.python : ''
+    const installCommands = findings
+      .map((f) => f.missingPackage && venvPython
+        ? `uv pip install --python ${venvPython} ${f.missingPackage}` : '')
+      .filter(Boolean)
+
+    return (
+      <>
+        {detailLines.map((line, i) => (
+          <div className="field-hint" key={`detail-${i}`} style={{ wordBreak: 'break-all' }}>{line}</div>
+        ))}
+        {causes.map((cause, i) => (
+          <div key={`cause-${i}`} className="msg msg-danger" style={{ marginTop: 6 }}>{cause}</div>
+        ))}
+        {hints.map((hint, i) => (
+          <div key={`hint-${i}`} className="field-hint" style={{ marginTop: 4 }}>
+            {t('Suggested next step: ', '建议：')}{hint}
+          </div>
+        ))}
+        {installCommands.length > 0 && (
+          <div className="rc-cmd" style={{ marginTop: 6 }}>
+            <div className="rc-cmd-body" style={{ wordBreak: 'break-all' }}>
+              {installCommands.join('\n')}
+            </div>
+          </div>
+        )}
+        {factLines.map((line, i) => (
+          <div key={`fact-${i}`} className="field-hint" style={{ marginTop: 4, wordBreak: 'break-all' }}>
+            {line}
+          </div>
+        ))}
+      </>
+    )
   }
 
   // 每道的标题与「这道在查什么」都从后端结果里取（平台四道的原话），前端不另造标签，
@@ -458,18 +669,71 @@ export function StepVerify ({ id, escape }) {
     : runtimeStatus === 'fail' ? t('Failed', '未通过') : t('Not run', '待执行')
   const audioBadge = runtimeStatus === 'ok' ? t('Passed', '通过')
     : runtimeStatus === 'fail' ? t('Failed', '未通过') : t('Not run', '待执行')
+  // 后端的错误详情是一对字段（英文 + 中文），按当前语言取。
+  //   只有中文的老字段作后备：缺了英文时仍显示中文，不显示空白。
+  const pickLang = (en, zh) => (lang === 'en' ? (en || zh) : (zh || en))
   // B 级的诊断信息照实给出，但不冒充「真实合成未通过」。
   const tierBDiagnostic = !ranTierA && checks.audio
-    ? (checks.audio.errorZh || checks.audio.error || '') : ''
+    ? pickLang(checks.audio.error, checks.audio.errorZh || checks.audio.error) : ''
   // 失败的合成要回答两个问题：为什么、接下来做什么。原文另给一份，
   //   它是唯一能让人自己判断的证据（缺模块名、权重路径、traceback 最后一行都在里面）。
   const audioFailed = !!(checks.audio && checks.audio.ok === false)
+  // 三种来源都要认：causeEn/causeZh（新字段成对）、cause/hint 只有中文（老字段）、
+  //   error/errorZh（宿主启动失败那条）。英文位优先取 *En，再退到老字段。
   const audioCause = audioFailed
-    ? (checks.audio.cause || checks.audio.errorZh || checks.audio.error || '') : ''
-  const audioHint = audioFailed ? (checks.audio.hint || '') : ''
-  const audioRaw = audioFailed
-    ? [checks.audio.detail, checks.audio.host_stderr].filter((s) => typeof s === 'string' && s.trim()).join('\n\n')
+    ? pickLang(
+      checks.audio.causeEn || checks.audio.cause || checks.audio.error,
+      checks.audio.causeZh || checks.audio.cause || checks.audio.errorZh || checks.audio.error)
     : ''
+  const audioHint = audioFailed
+    ? pickLang(
+      checks.audio.hintEn || checks.audio.hint,
+      checks.audio.hintZh || checks.audio.hint) : ''
+  // 输出的唯一数据源：运行中用流里的行，结束后（或从后端重取）用结果里那两路拼。
+  //   两者都是 {text, err} 行数组，渲染只用一块 .log-view，视觉上不分叉：
+  //   结束后不换组件、不换样式，只是不再有新行进来。
+  //   detail 是宿主返回的错误响应体，流里没有这一份，所以单独作为一行块排在前面。
+  const audioCheck = checks.audio || {}
+  // 每次渲染直接算：只有几百行字符串，缓存省不下什么，
+  //   而 useMemo 在依赖不变时会复用旧值：热更之后组件还在，
+  //   屏幕上留着的仍是依赖未变时缓存下来的旧行（打包文本还原不了）。
+  const outputLines = (() => {
+    if (streamLines.length) return streamLines
+    if (!audioFailed) return []
+    const rows = []
+    // 有些来源交上来的是序列化过的文本：换行是两个字符（反斜杠 + n），
+    //   整段挤成一行。判据是「一个真换行都没有，却含字面转义」才还原，
+    //   正常的代码片段里带一个 \n 不会被误拆。
+    const unescapeIfPacked = (text) => {
+      const raw = String(text)
+      if (raw.includes('\n')) return raw
+      if (!/\\[rnt]/.test(raw)) return raw
+      return raw
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+    }
+    const push = (text, err) => {
+      // 逐段还原，不能整段判断：一份 detail 里常常前半段是真换行、
+      //   后半段（引擎的 traceback）是打包的字面转义。整段看一眼「已经有换行了」
+      //   就跳过，后半段会原样留下一串 \r\n。
+      for (const segment of String(text).split(/\r?\n/)) {
+        for (const line of unescapeIfPacked(segment).split(/\r?\n/)) {
+          if (line.length) rows.push({ text: line, err })
+        }
+      }
+    }
+    if (audioCheck.detail) push(audioCheck.detail, true)
+    if (audioCheck.host_stdout) {
+      rows.push({ text: '── stdout ──', err: false })
+      push(audioCheck.host_stdout, false)
+    }
+    if (audioCheck.host_stderr) {
+      rows.push({ text: '── stderr ──', err: false })
+      push(audioCheck.host_stderr, true)
+    }
+    return rows
+  })()
   const runtimeHint = runtimeStatus === 'ok'
     ? t('A real synthesis produced a non-empty WAV. It is available for playback below.',
       '已执行一次真实合成并取得非空 WAV 样本，可在下方试听。')
@@ -498,12 +762,25 @@ export function StepVerify ({ id, escape }) {
     //   否则一条 66 个文件名的长句谁也读不下去。
     const weightLines = []
     let weightMissing = []
+    let weightPartial = []
     if (key === 'checkpoints' && check) {
       weightMissing = Array.isArray(check.missing) ? check.missing : []
+      weightPartial = Array.isArray(check.partial) ? check.partial : []
+      const staleTmp = Array.isArray(check.stale_tmp) ? check.stale_tmp : []
+      const declaredTmp = Array.isArray(check.declared_tmp) ? check.declared_tmp : []
       const declared = Array.isArray(check.required) ? check.required.length : 0
+      // 「没下完」与「从没下过」分开说：盘上只有 .tmp 时继续下载即可，
+      //   不必从头再取一遍；两样都没有才是真需要下载。
+      if (weightPartial.length > 0) {
+        weightLines.push(t(
+          `${weightPartial.length} of the ${declared} declared file(s) are only partially downloaded: `
+          + 'a .tmp resume marker is on disk but the file itself is not. Resume the download in step 3.',
+          `名片声明了 ${declared} 个文件，其中 ${weightPartial.length} 个还没下完：`
+            + '盘上只有 .tmp 续传标记，正式文件不在。到第 3 步继续下载即可，不必从头重下。'))
+      }
       if (weightMissing.length > 0) {
         weightLines.push(t(
-          `The manifest declares ${declared} file(s); ${weightMissing.length} of them are not on disk.`,
+          `${weightMissing.length} of the ${declared} declared file(s) are not on disk.`,
           `名片声明了 ${declared} 个文件，其中 ${weightMissing.length} 个不在盘上。`))
         // 这份清单的来源必须说清：它是第 4 步按「当时盘上有什么」自动填的快照，
         //   目录内容变了不会自己跟着改，于是第 5 步会一直缺同一批早已不存在的文件名。
@@ -511,40 +788,60 @@ export function StepVerify ({ id, escape }) {
           'That list is a snapshot auto-filled in step 4 from what was on disk then. If the folder has changed since, edit models.required in step 4 (JSON view) and run the checks again.',
           '这份清单是第 4 步按当时的盘上文件自动填的快照，目录内容变了它不会跟着改。'
             + '若目录已经变过，回第 4 步切到 JSON 视图把 models.required 改成盘上实际的文件，再回来重算。'))
-      } else if (typeof check.note === 'string' && check.note) {
-        weightLines.push(check.note)
+      }
+      if (declaredTmp.length > 0) {
+        weightLines.push(t(
+          `The manifest lists temporary download names (${declaredTmp.join(', ')}). `
+          + 'Those files never exist after a finished download; edit models.required in step 4 to the real file names.',
+          `名片里写的是下载临时文件名（${declaredTmp.join('、')}），下载完成后这些名字不会存在。`
+            + '回第 4 步把 models.required 改成正式文件名。'))
+      }
+      if (staleTmp.length > 0) {
+        weightLines.push(t(
+          `${staleTmp.length} file(s) are present and also have a leftover .tmp next to them. `
+          + 'This does not affect the check; the .tmp files can be deleted.',
+          `有 ${staleTmp.length} 个文件已就位，旁边还留着 .tmp 临时文件。`
+            + '这不影响判定，.tmp 可以删掉。'))
+      }
+      if (weightPartial.length === 0 && weightMissing.length === 0
+        && staleTmp.length === 0 && declaredTmp.length === 0
+        && typeof check.note === 'string' && check.note) {
+        weightLines.push(pickLang(check.note, check.noteZh || check.note))
       }
       if (typeof check.abs_path === 'string' && check.abs_path) {
         weightLines.push(t('Weights directory: ', '权重目录：') + check.abs_path)
       }
     }
-    const shown = status === 'fail' || status === 'unknown'
-      ? [...weightLines, ...problems.map(renderProblem)]
-      : []
+    // env_deep 走结构化分层：stdout 原文、诊断结论、办法与环境事实各占一层。
+    //   其余三道没有 import_diagnostics，照旧用 problems 平铺。
+    const importFindings = renderImportFindings(check)
+    const shown = importFindings
+      ? []
+      : status === 'fail' || status === 'unknown'
+        ? [...weightLines, ...problems.map(renderProblem)]
+        : []
     const hasShown = shown.length > 0
 
     const badge = status === 'ok' ? t('Passed', '通过') : status === 'fail' ? t('Failed', '未通过') : t('Unknown', '未知')
 
     return (
-      <div className="section" key={key}>
-        <div className="section-hdr">
-          <h2>
-            {titleOf(key, check)}
-            <span className={`badge ${badgeClass(status)}`}>{badge}</span>
-          </h2>
+      <div key={key} style={{ ...BOX, marginTop: 0 }}>
+        <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+          {titleOf(key, check)}
+          <span className={`badge ${badgeClass(status)}`} style={{ marginLeft: 6 }}>{badge}</span>
         </div>
-        <div className="section-body">
+        <div>
           {check && check.whyZh && (
             <div className="field-hint">{t(check.why, check.whyZh)}</div>
           )}
-          {status === 'ok' ? (
+          {importFindings ? importFindings : status === 'ok' ? (
             <div className="field-hint">
               {key === 'checkpoints'
-                ? t('Every weights file named in the manifest is present. This is a static check only; run tier A below to verify synthesis.',
-                  '名片声明的权重文件齐全。此项为静态核对，引擎能否合成语音需执行下方 A 级校验。')
+                ? t('Every weights file named in the manifest is present.',
+                  '名片声明的权重文件齐全。')
                 : key === 'env_shallow'
-                  ? t('The interpreter, the entrypoint and verify.sys_path are on disk. This does not confirm that the environment was built from the manifest declaration, nor which package versions are installed.',
-                    '解释器、推理入口与 verify.sys_path 都在盘上。此项不核对环境是否按名片声明建立，也不核对已安装的包版本。')
+                  ? t('The interpreter, the entrypoint and verify.sys_path named in the manifest are on disk.',
+                    '名片声明的解释器、推理入口与 verify.sys_path 都在盘上。')
                   : t('No problems found.', '未发现问题。')}
             </div>
           ) : hasShown ? (
@@ -556,9 +853,19 @@ export function StepVerify ({ id, escape }) {
           ) : (
             <div className="field-hint">{t('Not checked yet.', '尚未检查。')}</div>
           )}
-          {infoLines(check).map((line, i) => (
+          {!importFindings && infoLines(check).map((line, i) => (
             <div className="field-hint" key={i} style={{ wordBreak: 'break-all' }}>{line}</div>
           ))}
+          {weightPartial.length > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary className="field-hint" style={{ cursor: 'pointer' }}>
+                {t('Partially downloaded (only .tmp on disk)', '下载未完成（盘上只有 .tmp）')}（{weightPartial.length}）
+              </summary>
+              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 200, overflow: 'auto' }}>
+                {weightPartial.join('\n')}
+              </pre>
+            </details>
+          )}
           {weightMissing.length > 0 && (
             <details style={{ marginTop: 6 }}>
               <summary className="field-hint" style={{ cursor: 'pointer' }}>
@@ -572,8 +879,8 @@ export function StepVerify ({ id, escape }) {
           {key === 'checkpoints' && Array.isArray(check && check.external) && check.external.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <div className="field-hint">
-                {t(`${check.external.length} resource(s) are fetched by the engine on first run and are not part of this check.`,
-                  `另有 ${check.external.length} 项资源由引擎首次推理时自行拉取，不在此项核对范围内。`)}
+                {t(`${check.external.length} resource(s) are fetched by the engine on its first inference and are listed here for reference.`,
+                  `另有 ${check.external.length} 项资源由引擎首次推理时自行拉取，列举如下。`)}
               </div>
               {check.external.map((h) => (
                 // 一行一条：仓库名长短差很多（charactr/vocos-mel-24khz 比 k2-fsa/ZipVoice 长一倍），
@@ -590,8 +897,8 @@ export function StepVerify ({ id, escape }) {
     )
   }
 
-  // 右侧栏：9886 参考音频选择器的向导版。数据源与它相同（/api/assets/*，5199 已代理），
-  //   差别只在交付方式——9886 点选，这里额外支持拖到左侧输入框。
+  // 右侧栏：9886 参考音频选择器的向导版。取的是同一份磁盘资产（向导自己读，
+  //   见 core/assetsbridge.js），差别只在交付方式：9886 点选，这里额外支持拖到左侧输入框。
   const renderRefSidebar = () => {
     const q = assetSearch.trim().toLowerCase()
     const shownSegs = q
@@ -606,6 +913,9 @@ export function StepVerify ({ id, escape }) {
       return fn ? `assets/${assetVoice}/slicer_opt/${fn}` : ''
     }
     const rawPath = (r) => (r && r.filename) ? `assets/${assetVoice}/raw/${r.filename}` : ''
+    // 试听也走向导自己：5199 没有代理 /assets，直接用平台的静态路径会拿到 HTML。
+    const fileUrl = (area, name) => `/wizard/assets/file?voice=${encodeURIComponent(assetVoice)}`
+      + `&area=${area}&name=${encodeURIComponent(name)}`
     return (
       <div className="wz-drawer-stack">
         <div className="section">
@@ -617,11 +927,11 @@ export function StepVerify ({ id, escape }) {
           </div>
           <div className="section-body">
             {assetDown && (
-              // 说清是「取不到」而不是「没有」：这一栏的数来自 9886，后端未启动时
-              //   只会拿到一个空列表，看起来像这个资产真的没有切片。
+              // 说清是「取不到」而不是「没有」：读不到注册表时这一栏只会是空的，
+              //   看起来像这个资产真的没有切片。
               <div className="msg msg-warning" style={{ marginTop: 0, marginBottom: 8 }}>
-                {t('Could not read the asset list from the platform backend (9886). Start the platform and reopen this step; the reference audio path can also be filled in directly.',
-                  '读不到平台后端（9886）的资产列表。启动平台后重进这一步即可；参考音频路径也可以直接填。')}
+                {t('Could not read the voice list (data/voices.json); the reference audio path can still be filled in directly.',
+                  '读不到音色清单（data/voices.json）；参考音频路径仍可直接填写。')}
               </div>
             )}
             <div className="field">
@@ -690,7 +1000,7 @@ export function StepVerify ({ id, escape }) {
                               {s.text}
                             </div>
                           )}
-                          <AudioPlayer src={`/assets/${assetVoice}/slicer_opt/${fn}`} />
+                          <AudioPlayer src={fileUrl('slicer_opt', fn)} />
                         </div>
                       )
                     })}
@@ -720,7 +1030,7 @@ export function StepVerify ({ id, escape }) {
                               {r.text}
                             </div>
                           )}
-                          <AudioPlayer src={r.url} />
+                          <AudioPlayer src={fileUrl('raw', r.filename)} />
                         </div>
                       )
                     })}
@@ -742,105 +1052,140 @@ export function StepVerify ({ id, escape }) {
     <Stage
       left={null}
       center={
-        <div className="wz-stage-main-inner wz-stack">
+        <div className="wz-stage-main-inner">
+        <StepCard title={stepFrame.title} done={stepFrame.done} onClose={stepFrame.onClose}>
+          <div className="wz-stack">
           {escape && (
             <div className="section">
               <div className="section-body">{escape}</div>
             </div>
           )}
+          {/* 机械式检验收进同一个大框：先列详细证据，后列结论。
+              两块都是机器自动跑出来的检查，与下面要人手填文本、点合成的
+              「语音合成可用性」不是一回事，所以合成单独成框。 */}
           <div className="section">
             <div className="section-hdr">
-              <h2>{t('Verification overview', '校验结论')}</h2>
+              <h2>{t('Engine runtime checks', '引擎运行环境检验')}</h2>
+              <button className="btn btn-sm" type="button"
+                disabled={!id || preflightLoading || loading}
+                title={t('Re-run the three static environment checks (interpreter, import, weights). This does not run speech synthesis.',
+                  '重跑解释器、模块导入与权重三道静态核对，不执行语音合成。')}
+                onClick={recheckEnvironment}>
+                {preflightLoading
+                  ? t('Rechecking…', '重新检验中…')
+                  : t('Recheck', '重新检验')}
+              </button>
             </div>
             <div className="section-body">
-              {loading && !results && (
-                <div className="msg msg-info" style={{ marginBottom: 6 }}>
-                  {t('Running checks…', '正在校验…')}{' '}
-                  <span className="field-hint" style={{ marginLeft: 0 }}>
-                    {formatElapsed(elapsedMs)}
+              {/* 证据默认收起：结论就在下面直接给出，展开只为看三块证据。
+                  有未通过项时子标题上的徽标照常显示。 */}
+              <div className="field-label" role="button" tabIndex={0}
+                onClick={() => setChecksOpen(!checksOpen)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChecksOpen(!checksOpen) }
+                }}
+                aria-expanded={checksOpen}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{t('Detailed checks', '详细校验项')}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className={`badge ${preflightStatus === 'ok' ? 'badge-ok'
+                    : preflightStatus === 'fail' ? 'badge-danger' : 'badge-warn'}`}>
+                    {preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
                   </span>
-                </div>
-              )}
-              {!loading && !results && (
-                <div className="msg msg-warn" style={{ marginBottom: 6 }}>
-                  {t('Checks failed to load. Reload the page, or run the checks again with the button below.',
-                    '校验结果没有取回来。可以重新加载页面，或用下方按钮再跑一次。')}
-                </div>
-              )}
-              <div className={`msg msg-${preflightStatus === 'ok' ? 'success' : preflightStatus === 'fail' ? 'danger' : 'warn'}`}>
-                <strong>{t('Preflight checks', '接入前置检查')}</strong>
-                {' · '}{preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
-                <div className="field-hint" style={{ marginTop: 4 }}>
-                  {t('Static checks confirm the manifest, the environment and the files on disk. They do not prove that the engine can synthesise speech.',
-                    '接入前置检查用于确认名片声明、运行环境与盘上文件一致，不能证明引擎能够合成语音。')}
-                </div>
+                  <span className="field-hint" style={{ marginTop: 0 }}>{checksOpen ? '▾' : '▸'}</span>
+                </span>
               </div>
-              <div className={`msg msg-${runtimeStatus === 'ok' ? 'success' : runtimeStatus === 'fail' ? 'danger' : 'info'}`}
-                style={{ marginTop: 6 }}>
-                <strong>{t('Runtime synthesis', '运行验证')}</strong>
-                {' · '}{runtimeLabel}
-                <div className="field-hint" style={{ marginTop: 4 }}>{runtimeHint}</div>
-                {/* 同一份失败连跑两次，结论一字不变 ⇒ 必须留一条「刚刚跑过」的痕迹，
-                    否则使用者无法判断点击是否生效。 */}
-                {lastRun && lastRun.level === 'A' && !loading && (
+              {checksOpen && (
+                <div style={{ marginTop: 6 }}>
+                  {['env_shallow', 'env_deep', 'checkpoints'].map((key, i) => (
+                    <div key={key} style={{ marginTop: i > 0 ? BOX_GAP : 0 }}>
+                      {renderCheckBlock(key)}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 分隔线：上面是详细证据，下面是结论。两块都能折叠，
+                  线让「这是两件事」在收起态也看得出来。与第 2/3/4 步同一条横线。 */}
+              <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+
+              {/* 结论：同样可折叠，默认展开（它是进来最想看的结果）。 */}
+              <div className="field-label" role="button" tabIndex={0}
+                onClick={() => setOverviewOpen(!overviewOpen)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOverviewOpen(!overviewOpen) }
+                }}
+                aria-expanded={overviewOpen}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{t('Verification overview', '校验结论')}</span>
+                <span className="field-hint" style={{ marginTop: 0 }}>{overviewOpen ? '▾' : '▸'}</span>
+              </div>
+              {overviewOpen && (
+              <div style={{ marginTop: 6 }}>
+                {/* 只要有请求未完成就提示：先到的静态结论不等于「校验结束」，
+                    声音那一项仍在进行。缺少这条提示时，已有前置结论的界面看起来是静止的。 */}
+                {(loading || preflightLoading) && (
+                  <div className="msg msg-info" style={{ marginBottom: 6 }}>
+                    {t('Running checks…', '正在校验…')}{' '}
+                    <span className="field-hint" style={{ marginLeft: 0 }}>
+                      {formatElapsed(elapsedMs)}
+                    </span>
+                  </div>
+                )}
+                {!loading && !preflightLoading && !results && (
+                  <div className="msg msg-warn" style={{ marginBottom: 6 }}>
+                    {t('Checks failed to load. Reload the page, or run the checks again with the button below.',
+                      '校验结果没有取回来。可以重新加载页面，或用下方按钮再跑一次。')}
+                  </div>
+                )}
+                <div className={`msg msg-${preflightStatus === 'ok' ? 'success' : preflightStatus === 'fail' ? 'danger' : 'warn'}`}>
+                  <strong>{t('Preflight checks', '接入前置检查')}</strong>
+                  {' · '}{preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
                   <div className="field-hint" style={{ marginTop: 4 }}>
-                    {t('Last tier A run at ', 'A 级最近一次运行：')}{clockOf(lastRun.at)}
-                    {' · '}{t('took ', '用时 ')}{formatElapsed(lastRun.ms)}
-                    {' · '}{lastRun.ok ? t('passed', '通过') : t('failed', '未通过')}
+                    {t('Static checks confirm the manifest, the environment and the files on disk. They do not prove that the engine can synthesise speech.',
+                      '接入前置检查用于确认名片声明、运行环境与盘上文件一致，不能证明引擎能够合成语音。')}
+                  </div>
+                </div>
+                <div className={`msg msg-${runtimeStatus === 'ok' ? 'success' : runtimeStatus === 'fail' ? 'danger' : 'info'}`}
+                  style={{ marginTop: 6 }}>
+                  <strong>{t('Runtime synthesis', '运行验证')}</strong>
+                  {' · '}{runtimeLabel}
+                  <div className="field-hint" style={{ marginTop: 4 }}>{runtimeHint}</div>
+                  {/* 同一份失败连跑两次，结论一字不变 ⇒ 必须留一条「刚刚跑过」的痕迹，
+                      否则使用者无法判断点击是否生效。 */}
+                  {lastRun && lastRun.level === 'A' && !loading && (
+                    <div className="field-hint" style={{ marginTop: 4 }}>
+                      {t('Last tier A run at ', 'A 级最近一次运行：')}{clockOf(lastRun.at)}
+                      {' · '}{t('took ', '用时 ')}{formatElapsed(lastRun.ms)}
+                      {' · '}{lastRun.ok ? t('passed', '通过') : t('failed', '未通过')}
+                    </div>
+                  )}
+                </div>
+                {results && results.post_download_available && (
+                  <div style={{ marginTop: 6 }}>
+                    <button className="btn btn-sm" type="button" disabled={postBusy}
+                      title={t('Run the engine-declared download command, then repeat the preflight checks.',
+                        '执行名片声明的补齐命令，随后重新执行一遍前置检查。')}
+                      onClick={runPostDownload}>
+                      {postBusy ? t('Running', '运行中') : t('Complete engine resources and recheck', '按名片补齐并重新校验')}
+                    </button>
+                    {postBusy && (
+                      <button className="btn btn-sm btn-danger" type="button" style={{ marginLeft: 6 }}
+                        onClick={stopPostDownload}>
+                        {t('Stop', '停止')}
+                      </button>
+                    )}
+                    {postOut.length > 0 && (
+                      <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 180, overflow: 'auto' }}>
+                        {postOut.join('\n')}
+                      </pre>
+                    )}
                   </div>
                 )}
               </div>
-              {results && results.post_download_available && (
-                <div style={{ marginTop: 6 }}>
-                  <button className="btn btn-sm" type="button" disabled={postBusy}
-                    title={t('Run the engine-declared download command, then repeat the preflight checks.',
-                      '执行名片声明的补齐命令，随后重新执行一遍前置检查。')}
-                    onClick={runPostDownload}>
-                    {postBusy ? t('Running', '运行中') : t('Complete engine resources and recheck', '按名片补齐并重新校验')}
-                  </button>
-                  {postBusy && (
-                    <button className="btn btn-sm btn-danger" type="button" style={{ marginLeft: 6 }}
-                      onClick={stopPostDownload}>
-                      {t('Stop', '停止')}
-                    </button>
-                  )}
-                  {postOut.length > 0 && (
-                    <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 180, overflow: 'auto' }}>
-                      {postOut.join('\n')}
-                    </pre>
-                  )}
-                </div>
               )}
             </div>
           </div>
-
-          {/* 三块静态校验收进一个可折叠面板，默认收起：上面的「校验结论」已经给出
-              通过数与合成状态，展开只看证据。有未通过项时标题上的徽标照常显示。 */}
-          <div className="collapsible">
-            <div className="collapsible-hdr"
-              onClick={() => setChecksOpen(!checksOpen)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChecksOpen(!checksOpen) }
-              }}
-              aria-expanded={checksOpen}>
-              <span>{t('Detailed checks', '详细校验项')}</span>
-              <span className={`badge ${preflightStatus === 'ok' ? 'badge-ok'
-                : preflightStatus === 'fail' ? 'badge-danger' : 'badge-warn'}`}>
-                {preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
-              </span>
-              <span className="field-hint" style={{ marginTop: 0 }}>{checksOpen ? '▲' : '▼'}</span>
-            </div>
-            {checksOpen && (
-              <div className="collapsible-body">
-                {renderCheckBlock('env_shallow')}
-                {renderCheckBlock('env_deep')}
-                {renderCheckBlock('checkpoints')}
-              </div>
-            )}
-          </div>
-
           <div className="section">
             <div className="section-hdr">
               <h2>
@@ -864,7 +1209,7 @@ export function StepVerify ({ id, escape }) {
               )}
               {audioFailed && (
                 <div className="msg msg-danger" style={{ marginTop: 6 }}>
-                  <div>{checks.audio.error}</div>
+                  <div>{pickLang(checks.audio.error, checks.audio.errorZh || checks.audio.error)}</div>
                   <div style={{ marginTop: 6 }}>
                     <strong>{t('Why it failed', '失败原因')}</strong>
                   </div>
@@ -877,16 +1222,28 @@ export function StepVerify ({ id, escape }) {
                   )}
                 </div>
               )}
-              {audioRaw && (
-                <details style={{ marginTop: 6 }}>
-                  <summary className="field-hint" style={{ cursor: 'pointer' }}>
-                    {t('Raw output from the engine and the host', '引擎与宿主的原始输出')}
-                  </summary>
-                  <pre className="rc-cmd-body"
-                    style={{ marginTop: 6, maxHeight: 240, overflow: 'auto' }}>
-                    {audioRaw}
-                  </pre>
-                </details>
+              {/* 输出只有一块：点击「执行 A 级校验」立刻出现，结束后留在原地。
+                  不折起来：这一步就是让人看着它在做什么，藏进 details 等于没给。
+                  流与结果共用同一个 .log-view，所以结束后不换样子。 */}
+              {(streamRunning || outputLines.length > 0) && (
+                <div style={{ marginTop: 6 }}>
+                  <div className="field-hint" style={{ marginBottom: 4 }}>
+                    {t('Live output', '实时输出')}
+                  </div>
+                  <div className="log-view">
+                    {outputLines.length
+                      ? outputLines.map((line, i) => (
+                        <div key={i} className={`log-line${line.err ? ' error' : ''}`}>
+                          {line.text}
+                        </div>
+                      ))
+                      : (
+                        <div className="log-line">
+                          {t('Starting the host…', '正在启动宿主…')}
+                        </div>
+                        )}
+                  </div>
+                </div>
               )}
               {deviceDeclared === true && (
                 <DeviceSelect
@@ -965,7 +1322,7 @@ export function StepVerify ({ id, escape }) {
                 type="button"
                 disabled={loading || !synthText.trim()}
                 style={{ marginTop: 6 }}
-                onClick={() => runChecks('A', synthRequest())}
+                onClick={() => runAudioStream(synthRequest())}
               >
                 {runningLevel === 'A' ? t('Running…', '正在运行…') : t('Run tier A', '执行 A 级校验')}
               </button>
@@ -1080,6 +1437,8 @@ export function StepVerify ({ id, escape }) {
               )}
             </div>
           </div>
+          </div>
+        </StepCard>
         </div>
       }
       right={renderRefSidebar()}

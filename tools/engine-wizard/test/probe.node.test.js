@@ -286,6 +286,22 @@ test('snapshot_download：同一个代码块里的 import 决定来源', () => {
   assert.strictEqual(got['org/both'].source, 'unknown', '两个库都导入时不许挑一个')
 })
 
+test('snapshot_download：同一块里先后给出两种来源，按 import 分组判', () => {
+  // README 常把「魔搭一组、Hugging Face 一组」并排列在同一个代码块里。
+  //   整块交给来源判定会同时看到两个库，旧规则只能 unknown；分组后每组应各自有来源。
+  const md = [
+    '```python',
+    'from modelscope import snapshot_download',
+    "snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')",
+    'from huggingface_hub import snapshot_download',
+    "snapshot_download('FunAudioLLM/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')",
+    '```',
+  ].join('\n')
+  const got = Object.fromEntries(extractDownloadCommands(md).map((c) => [c.repo, c]))
+  assert.strictEqual(got['iic/CosyVoice2-0.5B'].source, 'modelscope')
+  assert.strictEqual(got['FunAudioLLM/CosyVoice2-0.5B'].source, 'hf')
+})
+
 test('snapshot_download：别的代码块里的 import 不算数', () => {
   const md = '```python\nfrom modelscope import snapshot_download\n```\n\n'
     + '```python\nsnapshot_download("org/other-block")\n```\n'

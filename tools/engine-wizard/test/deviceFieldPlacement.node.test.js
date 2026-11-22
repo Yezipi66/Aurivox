@@ -72,12 +72,12 @@ const engineHead = () => [...container.querySelectorAll('.wz-subhead')]
   .find((el) => /引擎配置|Engine settings/.test(el.textContent))
 const badgeCount = () => Number(engineHead().querySelector('.badge').textContent.trim())
 
-test('区标题数的是这一区的格子数：OPTIONAL_KEYS 十行 + 运行设备一格 = 11', async () => {
+test('区标题数的是这一区的格子数：OPTIONAL_KEYS 九行 + 运行设备一格 = 10', async () => {
   await act(async () => {
     root.render(React.createElement(OptionalConfig, { manifest: CARD(), onChange: () => {} }))
   })
   await settle()
-  assert.strictEqual(badgeCount(), 11, '搬进来的设备格要计入引擎配置的计数')
+  assert.strictEqual(badgeCount(), 10, '搬进来的设备格要计入引擎配置的计数')
 
   await act(async () => {
     engineHead().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -100,7 +100,7 @@ test('名片声明了多台设备时，计数跟着实际格子数走', async ()
     root.render(React.createElement(OptionalConfig, { key: 'two', manifest: card, onChange: () => {} }))
   })
   await settle()
-  assert.strictEqual(badgeCount(), 12, '两台设备各占一格：10 + 2')
+  assert.strictEqual(badgeCount(), 11, '两台设备各占一格：9 + 2')
 })
 
 test('引擎配置默认收起：运行设备格不出现；展开后出现在折叠体里', async () => {

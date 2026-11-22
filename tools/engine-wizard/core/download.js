@@ -331,6 +331,9 @@ function fetchRemoteManifest (repo, tool, baseUrl, opts = {}) {
               files.push({
                 name: s.rfilename,
                 size: s.size || 0,
+                // LFS 文件的 lfs.sha256 就是内容哈希，下载完成后据此核对。
+                //   blobId 是 git 对象标识，不是内容哈希，不能拿来比对。
+                sha256: (s.lfs && s.lfs.sha256) || null,
                 blobId: s.blobId || null,
               })
             }
@@ -340,7 +343,10 @@ function fetchRemoteManifest (repo, tool, baseUrl, opts = {}) {
               // 递归清单里有目录项（Type: tree），只要文件
               if (f.Type && f.Type !== 'blob') continue
               files.push({
-                name: f.Name || f.Path,
+                // 魔搭的 Name 只是文件名，Path 才是仓库内的相对路径。
+                //   取 Name 会让子目录里的文件拼出 /resolve/<分支>/config.json 这样的地址，
+                //   服务端一律回 404；取 Path 才能同时定位文件与本地落点。
+                name: f.Path || f.Name,
                 size: f.Size || 0,
                 sha256: f.Sha256 || null,
               })
@@ -374,15 +380,18 @@ function base64ToHex (b64) {
 /**
  * 判断一个模型文件在盘上的状态。
  * @returns {Promise<{status:'ok'|'partial'|'missing', size:number, sha256:string|null,
- *   shaVerified?:boolean, expectedSha?:string, note?:string, noteZh?:string}>}
- *   'ok' 表示正式文件存在、大小与远端一致、且有上游 SHA-256 时比对通过。
- *   远端没给大小时一律报 'partial'：无法确认完整性，报 'ok' 就是假绿灯。
+ *   criterion:'hash'|'size'|'none', shaVerified?:boolean, expectedSha?:string,
+ *   note?:string, noteZh?:string}>}
+ *   'ok' 表示正式文件存在，且按 criterion 指定的判据核对通过。
+ *   criterion 由远端提供的信息决定：给了 SHA-256 用哈希，只给大小用大小，
+ *   两者都没有则标「未校验」（信息不足不等于残缺，也不等于通过）。
  *   大小不符、与上游 SHA-256 不符、只有 .tmp 残留，都是 'partial'（要重下）。
- *   SHA-256 只在两边都有时才比对：上游没给就只报实际算出的值。
  */
 async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdir = '') {
   const finalPath = destPath(root, id, subdir, file)
   const tmpPath = finalPath + '.tmp'
+  // 这条清单条目用哪条判据：远端给什么，就按什么核对，不降级也不冒充。
+  const criterion = expectedSha ? 'hash' : (Number(expectedSize) > 0 ? 'size' : 'none')
   // 同名文件已经存在又没有 .tmp 续传标记时，它可能来自另一个仓库。
   //   只在清单里说清楚，不替使用者判断哪一份才对，也不自动覆盖。
   const otherSource = fs.existsSync(finalPath) && !fs.existsSync(tmpPath)
@@ -393,12 +402,16 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
     const stat = fs.statSync(finalPath)
     // 远端没给大小，无从比对，不能当作已下载完成
     if (!expectedSize) {
+      // 远端没给大小：文件在盘上就算完成，只标「未校验」。
+      //   把信息不足判成残缺，会让明明下好的文件显示成中断，用户只能白下一遍。
       return {
-        status: 'partial',
+        status: 'ok',
         size: stat.size,
         sha256: await sha256File(finalPath),
-        note: 'The remote file list gives no size for this file — completeness cannot be confirmed.' + (otherSource ? keptEn : ''),
-        noteZh: '远端文件列表没有给出这个文件的大小，无法确认完整性。' + (otherSource ? keptZh : ''),
+        criterion,
+        shaVerified: false,
+        note: 'The remote file list gives no size for this file; completeness was not verified.' + (otherSource ? keptEn : ''),
+        noteZh: '远端文件列表没有给出这个文件的大小，完整性未校验。' + (otherSource ? keptZh : ''),
       }
     }
     if (stat.size !== expectedSize) {
@@ -406,6 +419,7 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
         status: 'partial',
         size: stat.size,
         sha256: await sha256File(finalPath),
+        criterion,
         note: 'The file on disk does not match the size the remote file list reports.' + (otherSource ? keptEn : ''),
         noteZh: '磁盘上的文件和远端文件列表给出的大小不一致。' + (otherSource ? keptZh : ''),
       }
@@ -418,22 +432,23 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
         status: 'partial',
         size: stat.size,
         sha256: actualSha,
+        criterion,
         expectedSha,
         shaVerified: false,
         note: 'The file size matches but its SHA-256 differs from the value the remote reports.' + (otherSource ? keptEn : ''),
         noteZh: '文件大小一致，但 SHA-256 与远端给出的不一致，内容已损坏。' + (otherSource ? keptZh : ''),
       }
     }
-    return { status: 'ok', size: stat.size, sha256: actualSha,
+    return { status: 'ok', size: stat.size, sha256: actualSha, criterion,
       shaVerified: Boolean(expectedSha) }
   }
 
   if (fs.existsSync(tmpPath)) {
     const stat = fs.statSync(tmpPath)
-    return { status: 'partial', size: stat.size, sha256: null }
+    return { status: 'partial', size: stat.size, sha256: null, criterion }
   }
 
-  return { status: 'missing', size: 0, sha256: null }
+  return { status: 'missing', size: 0, sha256: null, criterion }
 }
 
 /**
@@ -453,8 +468,10 @@ function sha256File (filePath) {
 /**
  * 给远端文件清单补上本地状态与来源。
  * @returns {Promise<Array<{name:string,size:number,sha256:string|null,status:string,
- *   shaVerified:boolean,repo:string,tool:string,note:string|null,noteZh:string|null}>>}
- *   每一条 = 远端给的事实（name / size）+ 本地查出来的状态（status / sha256）。
+ *   criterion:'hash'|'size'|'none',shaVerified:boolean,
+ *   repo:string,tool:string,note:string|null,noteZh:string|null}>>}
+ *   每一条 = 远端给的事实（name / size / sha256）+ 本地查出来的状态（status / sha256）。
+ *   criterion 说明这一条按什么核对，界面据此显示「已按哈希核对 / 仅按大小核对 / 未校验」。
  *   必须带 repo 与 tool：前端单文件下载完成后会重新调 /wizard/download/manifest 刷新，
  *   而刷新是整表替换，不带来源就等于把每一项「属于哪个仓库」抹掉，仓库列与重下、续传按钮会一起失效。
  */
@@ -464,6 +481,10 @@ async function enrichManifestFiles (files, repo, tool, root, id, subdir = '') {
     const st = await checkFileStatus(f.name, f.size, root, id, f.sha256 || null, subdir)
     results.push({
       name: f.name, size: f.size, sha256: st.sha256 || f.sha256 || null, status: st.status,
+      // 远端声明的哈希单独留一份：sha256 在文件已存在时是本地算出来的值，
+      //   拿它当下载的期望值会变成自己和自己比对。
+      remote_sha256: f.sha256 || null,
+      criterion: st.criterion,
       shaVerified: st.shaVerified === true,
       repo, tool, subdir,
       note: st.note || null, noteZh: st.noteZh || null,
@@ -484,6 +505,25 @@ async function enrichManifestFiles (files, repo, tool, root, id, subdir = '') {
 //   写盘错误、HTTP 错误、主动取消不属于这一类，不重试。
 const TRANSIENT_NET_RE = /ECONNRESET|ETIMEDOUT|EPIPE|ECONNABORTED|EAI_AGAIN|socket hang up|timed out/i
 const MAX_RESUME_RETRIES = 6
+
+/**
+ * 解析 Content-Range 响应头（`bytes <start>-<end>/<total>`）。
+ *
+ * 续传位置只能由它判定，不能由状态码判定：Hugging Face 回 206 并带这个头，
+ *   魔搭回 200 也带这个头。只看状态码会把合法的续传当成「服务端不支持字节范围」。
+ *
+ * @param {string} value 响应头原文
+ * @returns {{start:number, end:number, total:number}|null} total 为 0 表示服务端写的是 `*`
+ */
+function parseContentRange (value) {
+  const m = String(value || '').match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i)
+  if (!m) return null
+  return {
+    start: Number(m[1]),
+    end: Number(m[2]),
+    total: m[3] === '*' ? 0 : Number(m[3]),
+  }
+}
 
 function isTransientNetworkError (e) {
   return TRANSIENT_NET_RE.test(`${(e && e.code) || ''} ${(e && e.message) || ''}`)
@@ -513,6 +553,11 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
     }
 
     const expectedSize = Number(file && file.size ? file.size : 0)
+    // 判定策略在下载前就定下来，随文件对象一路带到这里，不在收尾时再猜：
+    //   远端给了 sha256 ⇒ 以哈希为准；只给了大小 ⇒ 以字节数为准；
+    //   两者都没有（直链常见）⇒ 只能标「未校验」，不声称核对过。
+    const expectedSha = String((file && file.sha256) || '').toLowerCase() || null
+    const criterion = expectedSha ? 'hash' : (expectedSize > 0 ? 'size' : 'none')
 
     // 取消：信号在请求发出前就被触发 ⇒ 什么都不做，直接报取消。
     //   不留下未完成的文件，也不把未完成的文件当成续传起点。
@@ -574,22 +619,57 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      if (resumeFrom > 0 && status !== 206) {
-        res.resume()
-        // 续传请求拿到 200 说明服务端不认 Range。首次探测到 .tmp 时可以回到 0
-        //   允许按原路径重新下载；重试走到这里说明续传不成立，删掉未完成的临时文件。
-        if (attempt > 0) {
+      // 续传位置只由 Content-Range 判定，不由状态码判定：
+      //   Hugging Face 回 206 并带头，魔搭回 200 也带头。
+      //   按状态码判断会把魔搭的合法续传当成「不支持字节范围」，白白重下一遍。
+      const contentRange = parseContentRange(res.headers['content-range'])
+      if (resumeFrom > 0) {
+        if (contentRange && contentRange.start !== resumeFrom) {
+          // 起点不符时直接丢弃临时文件，不做拼接。
+          //   把全量响应追加到残留文件后面，得到的是一份尺寸更大、内容错位的文件。
+          res.resume()
           try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
           resolve({
-            ok: false, code: 'SIZE_MISMATCH', status, size: resumeFrom,
-            error: `Size mismatch for ${file.name}: the server did not honour the byte range.`,
-            errorZh: `${file.name} 大小不符：服务端不支持按字节续传。`
+            ok: false, code: 'RANGE_START_MISMATCH', status,
+            state: 'failed', criterion, failed_at: 'range',
+            expected: resumeFrom, actual: contentRange.start,
+            error: `The server started at byte ${contentRange.start} for ${file.name}, but the download asked to resume from ${resumeFrom}. The partial file was discarded instead of being appended.`,
+            errorZh: `${file.name}：请求从第 ${resumeFrom} 字节续传，服务端却从第 ${contentRange.start} 字节开始发送。已丢弃临时文件，未做拼接。`,
           })
           return
         }
-        req.destroy()
-        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true, signal, auth, attempt).then(resolve)
-        return
+        if (!contentRange && status === 206) {
+          // 206 却没有 Content-Range：无法确认起点，宁可不拼。
+          res.resume()
+          try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
+          resolve({
+            ok: false, code: 'RANGE_UNVERIFIED', status,
+            state: 'failed', criterion, failed_at: 'range',
+            expected: resumeFrom, actual: null,
+            error: `The server answered 206 for ${file.name} without a Content-Range header, so the resume position cannot be verified.`,
+            errorZh: `${file.name}：服务端返回 206 但没有 Content-Range，无法确认续传起点，已丢弃临时文件。`,
+          })
+          return
+        }
+        if (!contentRange) {
+          // 没有 Content-Range 且不是 206：服务端不认字节范围。
+          //   首次探测到 .tmp 时回到 0 重新下载；重试走到这里说明续传不成立。
+          res.resume()
+          if (attempt > 0) {
+            try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
+            resolve({
+              ok: false, code: 'RANGE_NOT_HONOURED', status,
+              state: 'failed', criterion, failed_at: 'range',
+              expected: resumeFrom, actual: 0,
+              error: `The server does not honour byte ranges for ${file.name}; this download cannot be resumed.`,
+              errorZh: `${file.name}：服务端不按字节范围续传，本次下载无法继续。`,
+            })
+            return
+          }
+          req.destroy()
+          downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true, signal, auth, attempt).then(resolve)
+          return
+        }
       }
 
       const contentLength = Number(res.headers['content-length'] || 0)
@@ -599,10 +679,10 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
 
-      const fail = (code, msg, keepTmp = false) => {
+      const fail = (code, msg, keepTmp = false, extra = {}) => {
         try { if (out) out.destroy() } catch (e) { /* 已关闭 */ }
         if (!keepTmp) { try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ } }
-        resolve({ ok: false, code, status, error: msg })
+        resolve({ ok: false, code, status, state: 'failed', criterion, ...extra, error: msg })
       }
 
       res.on('data', (chunk) => {
@@ -627,33 +707,123 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       })
       res.on('end', () => {
         out.end(async () => {
-          const sizeMismatch = (expected, source) => ({
-            ok: false, code: 'SIZE_MISMATCH', status,
-            size: downloaded, expected,
-            error: `Size mismatch for ${file.name}: got ${downloaded} bytes, ${source} reports ${expected}.`,
-            errorZh: `${file.name} 大小不符：实际 ${downloaded} 字节，${source}给出 ${expected} 字节。`,
-          })
           const dropTmp = () => {
             try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
           }
-          if (expectedSize > 0) {
-            if (downloaded !== expectedSize) {
-              dropTmp()
-              resolve(sizeMismatch(expectedSize, 'the remote file list'))
-              return
-            }
-          } else if (startOffset === 0 && contentLength > 0 && downloaded !== contentLength) {
+          const renameIntoPlace = () => {
+            try {
+              fs.renameSync(tmpPath, finalPath)
+              return null
+            } catch (e) { return e }
+          }
+          // 应到字节数：清单优先，其次响应头声明的总量，最后由本次响应的长度推算。
+          //   推算法只在从 0 开始的响应上成立：那时长度就是文件大小。
+          //   续传响应只覆盖文件的一段，用它推算会把「只收到一段」当成「文件就这么大」。
+          const expectedBytes = expectedSize > 0
+            ? expectedSize
+            : (contentRange && contentRange.total > 0
+              ? contentRange.total
+              : (startOffset === 0 && contentLength > 0 ? contentLength : 0))
+
+          // 一、传输层事实：报文是否收全。
+          //   这一条不依赖任何预期值，因此不会误判；报文缺失时内容必然不完整，
+          //   无需继续做后面的判据。
+          if (res.complete === false) {
             dropTmp()
-            resolve(sizeMismatch(contentLength, 'the server'))
+            resolve({
+              ok: false, code: 'INCOMPLETE_TRANSFER', status,
+              state: 'failed', criterion, failed_at: 'transfer',
+              size: downloaded, expected: expectedBytes || null,
+              error: `The response for ${file.name} ended before the message was complete; ${downloaded} bytes were written. The transfer can be retried.`,
+              errorZh: `${file.name} 的响应报文没有收全，已写入 ${downloaded} 字节，可以重试。`,
+            })
             return
           }
-          const actualSha256 = await sha256File(tmpPath)
-          try {
-            fs.renameSync(tmpPath, finalPath)
-            resolve({ ok: true, code: 'OK', status: 0, size: downloaded, sha256: actualSha256 })
-          } catch (e) {
-            resolve({ ok: false, code: 'RENAME_FAILED', status: null, error: e.message })
+
+          // 二、远端给了 sha256 时以哈希为准。
+          //   哈希一致即证明字节与远端完全相同；此时清单尺寸与之不符只说明元数据有误，
+          //   不能据此判失败，否则正确文件会被删除，只能重下一遍。
+          if (criterion === 'hash') {
+            if (typeof onProgress === 'function') {
+              try {
+                onProgress({
+                  file: file.name, percent: 100, downloaded,
+                  total: expectedBytes || downloaded, phase: 'verify',
+                })
+              } catch (e) { /* 忽略 */ }
+            }
+            const actualSha256 = await sha256File(tmpPath)
+            if (!actualSha256 || actualSha256 !== expectedSha) {
+              dropTmp()
+              resolve({
+                ok: false, code: 'CONTENT_MISMATCH', status,
+                state: 'failed', criterion, failed_at: 'hash',
+                size: downloaded, sha256: actualSha256, expectedSha,
+                expected: expectedBytes || null,
+                error: `${file.name}: the SHA-256 on disk is ${actualSha256 || '(unreadable)'}, the remote reports ${expectedSha}. The bytes were transferred; the content is a different file. Retrying will not help, so check the source (branch, mirror, or an existing file with the same name).`,
+                errorZh: `${file.name} 的 SHA-256 与远端不一致：盘上 ${actualSha256 || '（读不出来）'}，远端 ${expectedSha}。字节已传完，但内容不是同一个文件。重试无效，请核对来源（分支、镜像，或盘上原有的同名文件）。`,
+              })
+              return
+            }
+            const renameErr = renameIntoPlace()
+            if (renameErr) {
+              resolve({ ok: false, code: 'RENAME_FAILED', status: null, state: 'failed', criterion, error: renameErr.message })
+              return
+            }
+            const sizeDrifted = expectedBytes > 0 && downloaded !== expectedBytes
+            resolve({
+              ok: true, code: 'OK', status: 0, size: downloaded, sha256: actualSha256,
+              state: 'done', criterion, shaVerified: true,
+              ...(sizeDrifted ? {
+                note: `The file matches the remote SHA-256, but its size (${downloaded}) differs from the size the remote file list reports (${expectedBytes}). The hash is authoritative; the list metadata may be stale.`,
+                noteZh: `内容与远端 SHA-256 一致，但实际大小 ${downloaded} 字节与远端清单声明的 ${expectedBytes} 字节不同。以哈希为准，清单中的尺寸信息可能有误。`,
+              } : {}),
+            })
+            return
           }
+
+          // 三、没有哈希时退回字节数。期望值来自清单或响应头，
+          //   两者都没有时无从核对，如实标注未校验。
+          if (expectedBytes > 0 && downloaded !== expectedBytes) {
+            dropTmp()
+            resolve({
+              ok: false, code: 'SIZE_MISMATCH', status,
+              state: 'failed', criterion, failed_at: 'size',
+              size: downloaded, expected: expectedBytes,
+              error: `Size mismatch for ${file.name}: got ${downloaded} bytes, expected ${expectedBytes}.`,
+              errorZh: `${file.name} 大小不符：实际 ${downloaded} 字节，应到 ${expectedBytes} 字节。`,
+            })
+            return
+          }
+          if (expectedBytes > 0 && typeof onProgress === 'function') {
+            try {
+              onProgress({
+                file: file.name, percent: 100, downloaded,
+                total: expectedBytes, phase: 'verify',
+              })
+            } catch (e) { /* 忽略 */ }
+          }
+          const actualSha256 = await sha256File(tmpPath)
+          const renameErr = renameIntoPlace()
+          if (renameErr) {
+            resolve({ ok: false, code: 'RENAME_FAILED', status: null, state: 'failed', criterion, error: renameErr.message })
+            return
+          }
+          if (expectedBytes === 0) {
+            resolve({
+              ok: true, code: 'OK_UNVERIFIED', status: 0, size: downloaded, sha256: actualSha256,
+              state: 'unverified', criterion, shaVerified: false,
+              note: 'The remote gave neither a size nor a SHA-256 for this file, so its content was not verified.',
+              noteZh: '远端既没有给出大小也没有给出 SHA-256，这个文件的内容未校验。',
+            })
+            return
+          }
+          resolve({
+            ok: true, code: 'OK', status: 0, size: downloaded, sha256: actualSha256,
+            state: 'done', criterion, shaVerified: false,
+            note: 'Checked by size only; the remote gave no SHA-256 for this file.',
+            noteZh: '仅按大小核对；远端没有给出这个文件的 SHA-256。',
+          })
         })
       })
       res.on('error', (e) => {
@@ -769,15 +939,25 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal 
   //   有 .tmp 说明是没下完的续传，照旧走下载。
   const finalPath = file && file.name ? destPath(root, id, file.subdir || '', file.name) : null
   const tmpPath = finalPath ? finalPath + '.tmp' : null
-  if (finalPath && fs.existsSync(finalPath) && !fs.existsSync(tmpPath)) {
+  const overwrite = !!(opts && opts.overwrite)
+  // 判据随文件走，保留与下载两条路径用同一份，界面不必各自推断。
+  const criterion = String((file && file.sha256) || '')
+    ? 'hash'
+    : (Number(file && file.size) > 0 ? 'size' : 'none')
+  if (finalPath && fs.existsSync(finalPath) && !fs.existsSync(tmpPath) && !overwrite) {
     const kept = {
-      ok: true, code: 'KEPT_EXISTING', status: null, skipped: true,
+      ok: true, code: 'KEPT_EXISTING', status: null, skipped: true, state: 'skipped', criterion,
       size: fs.statSync(finalPath).size,
       note: 'An existing file with this name was kept. It may have come from another repository; delete it first if this one is required.',
       noteZh: '已存在同名文件，保留未覆盖（可能来自另一个仓库）。确实要换成这一份时，请先删除该文件再下载。',
     }
     if (typeof onLine === 'function') onLine(kept.noteZh, false)
     return Promise.resolve(kept)
+  }
+  if (overwrite) {
+    for (const p of [finalPath, tmpPath]) {
+      try { if (p && fs.existsSync(p)) fs.rmSync(p, { force: true }) } catch (e) { /* 删不掉就交给下载层覆盖 */ }
+    }
   }
   const token = source === 'hf' ? (opts.token || null) : null
   const auth = token ? { token, origin: new URL(ENDPOINTS.hf).origin } : null
@@ -865,4 +1045,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, isTransientNetworkError, destPath, subdirIsSafe, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, isTransientNetworkError, destPath, subdirIsSafe, parseDownloadProgress, parseSize, parseContentRange }

@@ -580,8 +580,8 @@ function buildVenvStep (root, id, override) {
       pythonVersionSource: source,
       why: 'Create an isolated Python environment for this engine under engines/'
         + `${id}/.venv with the uv found on PATH (Python ${wantVersion}).`,
-      whyZh: `用 PATH 上的 uv 为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境`
-        + `（Python ${wantVersion}）。依赖装进这个环境，不装进平台自己的环境。`,
+      whyZh: `为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境，`
+        + `依赖会装进这个环境，环境用 Python ${wantVersion}。`,
     }
   }
   if (!uvPy) {
@@ -602,14 +602,13 @@ function buildVenvStep (root, id, override) {
     pythonVersion: wantVersion,
     pythonVersionSource: source,
     why: 'Create an isolated Python environment for this engine under engines/'
-      + `${id}/.venv. Dependencies are installed into it, not into the platform's own `
-      + `environment. The environment uses Python ${wantVersion}`
-      + (declared ? ` (declared by the engine in ${declared.source})` : ' (the platform base version)')
+      + `${id}/.venv. Dependencies are installed into it. The environment uses Python `
+      + `${wantVersion}`
+      + (declared ? ` (declared by the engine in ${declared.source})` : '')
       + '.',
-    whyZh: `为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境。`
-      + '依赖会装进这个环境，不装进平台自己的环境。'
-      + `环境用 Python ${wantVersion}`
-      + (declared ? `（引擎在 ${declared.source} 里声明的）` : '（平台基座版本）') + '。',
+    whyZh: `为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境，`
+      + `依赖会装进这个环境，环境用 Python ${wantVersion}`
+      + (declared ? `（引擎在 ${declared.source} 里声明的）` : '') + '。',
   }
 }
 

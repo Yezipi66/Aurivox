@@ -1,7 +1,7 @@
 // downloadState.js — 下载状态门面（内部走 useInstallSession）
 import { loadSession, saveSession, clearSession } from './useInstallSession.js'
 
-const LIST_KEYS = ['pastedRepos', 'pastedFiles', 'removedCmds', 'removedLinks', 'sourceChoices']
+const LIST_KEYS = ['pastedRepos', 'pastedFiles', 'removedCmds', 'removedLinks', 'sourceChoices', 'collapsedRepos']
 const emptyOf = (key) => (key === 'sourceChoices' ? {} : [])
 
 export function loadDownloadState (id, url) {
@@ -29,6 +29,7 @@ export function saveDownloadState (id, url, state) {
     removedCmds: state.removedCmds,
     removedLinks: state.removedLinks,
     sourceChoices: state.sourceChoices,
+    collapsedRepos: state.collapsedRepos,
   })
 }
 

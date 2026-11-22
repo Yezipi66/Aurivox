@@ -11,6 +11,7 @@
 // 名片里填的就是这个相对路径，不用再拼项目根。
 
 const path = require('node:path')
+const { fromV011 } = require('../../../lib/engines/contract')
 
 /** 权重目录的相对路径（相对项目根），如 engines/index-tts/checkpoints。 */
 function checkpointsRelPath (engineId) {
@@ -39,7 +40,9 @@ function checkpointsAbsPath (root, engineId) {
  * 平台契约要求相对项目根，所以绝对路径与带 .. 的路径一律不认，回退统一落点。
  */
 function resolveCheckpointsRel (manifest, engineId) {
-  const declared = manifest && manifest.runtime && manifest.runtime.checkpoints
+  // v0.1.1 磁盘是三节；投影成扁平视图再取 checkpoints（幂等，扁平输入原样返回）。
+  const flat = fromV011(manifest)
+  const declared = flat && flat.runtime && flat.runtime.checkpoints
   if (typeof declared === 'string') {
     const rel = declared.trim().replace(/\\/g, '/').replace(/\/+$/, '')
     if (rel && !path.isAbsolute(rel) && !rel.split('/').includes('..')) return rel

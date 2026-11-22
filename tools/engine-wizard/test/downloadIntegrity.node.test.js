@@ -71,11 +71,12 @@ test('上游没给 sha → 不报已校验（不许假装校验过）', async ()
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-test('上游没给大小 → partial，无法确认完整性', async () => {
+test('上游没给大小、文件在盘上 → ok（只标未校验，不报残缺）', async () => {
   const root = tmpRoot()
   putFile(root, 'eng1', 'm.safetensors', Buffer.from('weights'))
   const st = await checkFileStatus('m.safetensors', null, root, 'eng1', null)
-  assert.strictEqual(st.status, 'partial')
+  assert.strictEqual(st.status, 'ok', '信息不足不是残缺，文件在就算完成')
+  assert.strictEqual(st.shaVerified, false, '没比对过就不能声称校验过')
   fs.rmSync(root, { recursive: true, force: true })
 })
 

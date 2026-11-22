@@ -29,6 +29,7 @@ GPT-SoVITS 的 2.2+cu121，将来还有别的）。这些环境之间没有共�
 """
 
 import json
+import os
 import sys
 
 # 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp1252/cp936），
@@ -64,7 +65,8 @@ def _check_one(item):
         # 时抛的不一定是 Exception 的子类（见过 SystemExit 和裸 KeyboardInterrupt
         # 形状的东西），漏网的话探针自己会以非零码死掉，调用方就分不清
         # 「引擎没装」和「探针崩了」。
-        result["detail"] = "import 失败: %s: %s" % (type(exc).__name__, exc)
+        result["detail"] = "import failed: %s: %s" % (type(exc).__name__, exc)
+        result["detailZh"] = "import 失败: %s: %s" % (type(exc).__name__, exc)
         result["missing"].append("module:%s" % module_name)
         return result
 
@@ -73,12 +75,14 @@ def _check_one(item):
     class_name = item.get("class")
     if not class_name:
         result["ok"] = True
-        result["detail"] = "模块能 import"
+        result["detail"] = "the module imports"
+        result["detailZh"] = "模块能 import"
         return result
 
     target = getattr(mod, class_name, None)
     if target is None:
-        result["detail"] = "模块里没有 %s" % class_name
+        result["detail"] = "the module has no %s" % class_name
+        result["detailZh"] = "模块里没有 %s" % class_name
         result["missing"].append("class:%s.%s" % (module_name, class_name))
         return result
 
@@ -98,16 +102,20 @@ def _check_one(item):
             has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD
                              for p in sig.parameters.values())
             if has_var_kw:
-                result["init_params_note"] = "构造函数收 **kwargs，参数名核对不具判别力"
+                result["init_params_note"] = (
+                    "The constructor takes **kwargs, so checking parameter names proves nothing.")
+                result["init_params_noteZh"] = "构造函数收 **kwargs，参数名核对不具判别力"
             else:
                 for name in init_params:
                     if name not in names:
                         result["missing"].append("init_param:%s(%s)" % (class_name, name))
         except (TypeError, ValueError) as exc:
-            result["init_params_note"] = "读不出构造函数签名: %s" % exc
+            result["init_params_note"] = "cannot read the constructor signature: %s" % exc
+            result["init_params_noteZh"] = "读不出构造函数签名: %s" % exc
 
     result["ok"] = not result["missing"]
-    result["detail"] = "都在" if result["ok"] else "缺: " + ", ".join(result["missing"])
+    result["detail"] = "all present" if result["ok"] else "missing: " + ", ".join(result["missing"])
+    result["detailZh"] = "都在" if result["ok"] else "缺: " + ", ".join(result["missing"])
     return result
 
 
@@ -140,7 +148,34 @@ def main(argv):
     else:
         spec = json.loads(sys.stdin.read() or "{}")
 
-    sys.stdout.write(json.dumps(run(spec), ensure_ascii=False))
+    # 探针自己的参数不能漏给被检查的模块。
+    #   模块顶层常有 parse_args()：它读到的会是 "--spec-file <path>" 而不是
+    #   引擎的开关，argparse 判成非法参数就 SystemExit(2)。那不是「模块装不上」，
+    #   是参数串了。这里把 argv 复位成只剩程序名，模块按自己的默认参数走。
+    sys.argv = [sys.argv[0]]
+
+    # 只检查启动环境，不替引擎下权重。
+    #   模块顶层可能顺手拉一次运行期资源（F5-TTS 的入口会去取声码器）。
+    #   那是「跑起来」的事，不是「装没装」的事：在这里下载等于校验顺手建了环境，
+    #   把只验不建的立场破了。设成离线后，缺资源会当场抛 LocalEntryNotFoundError，
+    #   探针照常把它记进 checks 并同样以 0 退出。答案仍是「这次导不进来」，
+    #   只是不会被误读成「包没装」。
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["MODELSCOPE_OFFLINE"] = "1"
+
+    # 被检查的模块顶层可能 print（F5-TTS 的 infer_cli 就打印模型路径）。
+    #   那些字不属于探针的答案，混进 stdout 会让调用方的 JSON.parse 失败。
+    #   只在 import 期间接管 stdout，答案仍写回真正的 stdout。
+    import io
+    real_stdout = sys.stdout
+    try:
+        sys.stdout = io.StringIO()
+        payload = run(spec)
+    finally:
+        sys.stdout = real_stdout
+
+    real_stdout.write(json.dumps(payload, ensure_ascii=False))
     return 0
 
 

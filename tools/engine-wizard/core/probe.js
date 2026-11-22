@@ -24,7 +24,9 @@ function probePyproject (text) {
     if (!line || line.startsWith('#')) continue
 
     if (/^\[project\.scripts\]$/.test(line)) { inScripts = true; continue }
-    if (/^\[project\.optional-dependencies\]/.test(line)) { inScripts = false; continue }
+    // 可选依赖（extras）不是运行时依赖：默认不装，不能算进 dependencies，
+    //   否则 dev 组里的 pytest / black 会被当成「必须装上」。
+    if (/^\[project\.optional-dependencies\]/.test(line)) { inScripts = false; inDeps = false; continue }
     if (/^dependencies\s*=\s*\[/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^\[project\.dependencies\]$/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^optional-dependencies\s*=\s*\{/.test(line)) { inDeps = false; continue }

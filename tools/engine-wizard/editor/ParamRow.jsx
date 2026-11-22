@@ -23,10 +23,12 @@ const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
  *   meta.argv 让落点同步迁移 call.args 的键，开关改名后不留一个永远上不了命令行的条目
  * @param {Function} onDelete 删这一条（传索引）
  */
-export default function ParamRow ({ entry, index, spec, argv = '', argStyle = '', scanned, onChange, onDelete, typeGuessed = false, onTypeConfirmed, onTypeGuessed }) {
+export default function ParamRow ({ entry, index, spec, kind = 'cli', argv = '', argStyle = '', scanned, onChange, onDelete, typeGuessed = false, onTypeConfirmed, onTypeGuessed }) {
   const { t } = useT()
   void spec
 
+  // python 形态下没有命令行开关：这一列是方法参数名的只读镜像（见表头文案）。
+  const isPython = kind === 'python'
   const type = TYPES.includes(entry.type) ? entry.type : 'text'
   // 明细表（select 的候选、vector 的维度、boolean 的否定式开关）默认收起。
   //   收起时整行只有主行那一行：开合按钮摆在行尾，和删除按钮同一排，
@@ -112,11 +114,18 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
   return (
     <div className="wz-param-row">
       {/* 主行：开关 / 中文名 / 英文名 / 类型 / common-advanced */}
-      <input className="control wz-param-argv" value={argv || ''}
-        placeholder="--argv"
-        title={t('The switch the engine takes. The parameter name is derived from it.',
-          '引擎接收的命令行开关。参数名由它去掉开头横线得到。')}
-        onChange={(e) => setArgv(e.target.value)} />
+      {isPython ? (
+        <input className="control wz-param-argv" value={entry.name || ''}
+          readOnly
+          title={t('The upstream method parameter name this row binds to. It is read-only here: the method signature is the fact.',
+            '这一行绑定的上游方法参数名。只读：方法签名是事实。')} />
+      ) : (
+        <input className="control wz-param-argv" value={argv || ''}
+          placeholder="--argv"
+          title={t('The switch the engine takes. The parameter name is derived from it.',
+            '引擎接收的命令行开关。参数名由它去掉开头横线得到。')}
+          onChange={(e) => setArgv(e.target.value)} />
+      )}
       <input className="control wz-param-zh" value={label.zh}
         placeholder={t('Chinese label', '中文名')}
         title={t('Shown above this field on the synthesis page (Chinese)', '合成页这一格上方显示的中文名')}

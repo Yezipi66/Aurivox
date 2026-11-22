@@ -22,7 +22,7 @@ function load () {
 }
 
 const { readEntry, displayEntry, writeEntry, entryFileOf, readSubcommand, writeSubcommand,
-  writePythonEntry } = load()
+  writePythonEntry, withCallKind, callKindOf } = load()
 
 const CANDIDATES = [
   {
@@ -185,4 +185,73 @@ test('换入口时，旧的子命令不属于新入口就去掉', () => {
   const kept = writeEntry(m, 'cli/keep.py', K, 'demo')
   assert.deepStrictEqual(kept.call.argv, ['{engine_python}', '-m', 'cli.keep', 'synth', '--text', 'x'],
     '新入口也有这个子命令时保留')
+})
+
+// ---- 调用形态：cli / python ----
+
+test('形态按名片判：写了 kind 认它，没写按有没有 argv 判', () => {
+  assert.strictEqual(callKindOf({ call: { kind: 'python' } }), 'python')
+  assert.strictEqual(callKindOf({ call: { kind: 'cli' } }), 'cli')
+  assert.strictEqual(callKindOf({ call: { argv: ['{engine_python}', 'x.py'] } }), 'cli')
+  assert.strictEqual(callKindOf({ call: {} }), 'python')
+  assert.strictEqual(callKindOf({}), 'python')
+})
+
+test('切到 python：命令行那几段摘掉，绑定名改成方法参数名', () => {
+  const before = {
+    parameters: [{ name: 'train_data', type: 'text' }],
+    call: {
+      kind: 'cli',
+      argv: ['{engine_python}', '-m', 'pkg.cli'],
+      args: { voice: { flag: '--voice' } },
+      text_via: 'stdin',
+      bind: { text: '--tts-text', ref_audio: '--prompt_wav' },
+    },
+  }
+  const after = withCallKind(before, 'python')
+  assert.strictEqual(after.call.kind, 'python')
+  assert.strictEqual(after.call.argv, undefined,
+    'cli 的执行命令必须摘掉，否则界面按 argv 判形态，切了还在显示命令行词序')
+  assert.strictEqual(after.call.text_via, undefined, 'stdin 是 cli 专有的文本入口')
+  assert.strictEqual(after.call.args, undefined,
+    'call.args 是命令行形态的形状声明：留在 python 名片里保存会被拒')
+  assert.strictEqual(after.parameters, undefined,
+    '命令行扫出来的合成参数行要一起清掉：名字对不上方法参数，还会长得像可调旋钮')
+  assert.deepStrictEqual(after.call.bind, { text: 'tts_text', ref_audio: 'prompt_wav' },
+    '绑定名按 python 参数名改写：去掉前缀，原有的下划线保留')
+  assert.strictEqual(before.call.kind, 'cli', '原对象被动了')
+})
+
+test('切到 cli：构造参数摘掉，绑定名改成命令行开关，argv 给一个起点', () => {
+  const before = {
+    call: {
+      kind: 'python',
+      module: 'pkg.api',
+      class: 'Model',
+      method: 'infer',
+      init_args: { model_dir: '{checkpoints}' },
+      bind: { text: 'tts_text', ref_audio: 'prompt_wav' },
+    },
+  }
+  const after = withCallKind(before, 'cli')
+  assert.strictEqual(after.call.kind, 'cli')
+  assert.strictEqual(after.call.module, undefined)
+  assert.strictEqual(after.call.class, undefined)
+  assert.strictEqual(after.call.method, undefined)
+  assert.strictEqual(after.call.init_args, undefined, '构造参数属于 python 形态')
+  assert.deepStrictEqual(after.call.argv, ['{engine_python}'], '没有 argv 时给一个能继续填的起点')
+  assert.deepStrictEqual(after.call.bind, { text: '--tts-text', ref_audio: '--prompt-wav' })
+})
+
+test('切到 cli 时逐块生成不成立：返回方式落回文件', () => {
+  const after = withCallKind({ call: { kind: 'python', returns: 'generator' } }, 'cli')
+  assert.strictEqual(after.call.returns, 'file',
+    '命令行进程结束后只剩文件或字节流，generator 会让宿主走进一个 cli 不存在的分支')
+})
+
+test('已经是开关或参数名的绑定不会再被改一遍', () => {
+  const py = withCallKind({ call: { kind: 'cli', bind: { text: '--tts_text' } } }, 'python')
+  assert.strictEqual(py.call.bind.text, 'tts_text')
+  const cli = withCallKind({ call: { kind: 'python', bind: { text: 'tts_text' } } }, 'cli')
+  assert.strictEqual(cli.call.bind.text, '--tts-text')
 })

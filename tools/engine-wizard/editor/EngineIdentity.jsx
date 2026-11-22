@@ -2,7 +2,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
-import { useEngineDirs } from './useEngineDirs'
 import { useSaveManifest } from './useSaveManifest'
 import { manifestForEngineSwitch } from './manifestAutoFill'
 import Select from '../../../web/src/components/common/Select'
@@ -35,14 +34,15 @@ const BADGE_TONE = { ok: 'ok', warn: 'warn', muted: 'neutral' }
  * @param {object|null} diag 校验结果（有硬错时点保存只列问题、不存）
  * @param {Function} onSaved 保存成功回调
  * @param {Function} [onEngineTarget] 换引擎时同步全局目标（wz.id），一台引擎贯穿全流程
+ * @param {Array} dirs 引擎目录清单，由 App 统一持有：五步认的是同一份，不在各处各取一次。
+ * @param {Function} [onDirsReload] 保存后刷新目录清单（新名片让「尚无名片」标记消失）
  */
 export default function EngineIdentity ({
   manifest, onChange, facts, onScan, scanBusy, scanned, diag, onSaved, onEngineTarget,
-  viewSwitch,
+  dirs, onDirsReload, viewSwitch,
 }) {
   const { t } = useT()
   const { loadOne } = useInstalled()
-  const { dirs, reload: reloadDirs } = useEngineDirs()
   const [engineId, setEngineId] = React.useState(manifest.id || '')
   const [reading, setReading] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)   // 磁盘上的名片已读进表单
@@ -57,12 +57,12 @@ export default function EngineIdentity ({
     if (!engineId && manifest.id) setEngineId(manifest.id)
   }, [manifest.id, engineId])
 
-  const selectedDir = dirs.find((d) => d.id === engineId)
+  const selectedDir = (dirs || []).find((d) => d.id === engineId)
   const hasManifest = !!selectedDir && selectedDir.manifestPresent === true
 
   const { save, busy: saving, result } = useSaveManifest(manifest, (j) => {
     // 新建的名片存下去之后，这台引擎就「有名片」了：下拉与覆盖语义都要跟上。
-    reloadDirs()
+    if (onDirsReload) onDirsReload()
     setLoaded(true)
     if (onSaved) onSaved(j)
   })
@@ -99,9 +99,27 @@ export default function EngineIdentity ({
     } finally { setReading(false) }
   }
 
-  // 只有一个动作按钮：有名片且没读进来 ⇒ 读取；其余 ⇒ 扫描。
+  // 没有名片时这一格是「新建名片」：扫描结果直接成为这张新名片的内容，
+  //   形态（call.kind）与入口都在这一次扫描里定下来。
+  //   有名片但没读进来 ⇒ 「读取参数」。名片就位之后不再有动作按钮：
+  //   扫描参数移到中栏「调用方式」右边，离它要改的字段更近。
+  const needsCreate = !hasManifest
   const needsRead = hasManifest && !loaded
   const ready = loaded || (!hasManifest && scanned)
+
+  const createManifest = async () => {
+    if (!engineId) return
+    setLocalErr(null)
+    // 先落一张只有身份的名片：扫描结果要写回它，中栏的「扫描参数」也要靠
+    //   「有名片」这个状态才出现。
+    await save()
+    // 让父层状态落地：save 走的是渲染时那一份，扫描的写回要等下一次渲染才进 ref。
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    if (onScan) await onScan({ writeBack: true })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // 扫描结果再存一次：这一步才把形态、入口与绑定写进磁盘上的名片。
+    await save()
+  }
 
   const hasErrors = !!(diag && diag.summary && diag.summary.errors > 0)
 
@@ -123,26 +141,27 @@ export default function EngineIdentity ({
             disabled={reading || saving}
             onChange={(e) => pickEngine(e.target.value)}>
             <option value="">{t('— pick an engine —', '请选择一台引擎')}</option>
-            {dirs.map((d) => (
+            {(dirs || []).map((d) => (
               <option key={d.id} value={d.id}>
                 {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '尚无名片')}）`}
               </option>
             ))}
           </Select>
 
-          {needsRead
-            ? (
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={!engineId || reading} onClick={readManifest}>
-                {reading ? t('Reading…', '读取中…') : t('Read parameters', '读取参数')}
-              </button>
-              )
-            : (
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={!engineId || scanBusy} onClick={onScan}>
-                {scanBusy ? t('Scanning…', '扫描中…') : t('Scan parameters', '扫描参数')}
-              </button>
-              )}
+          {needsCreate && (
+            <button className="btn btn-sm btn-primary" type="button"
+              disabled={!engineId || scanBusy || saving} onClick={createManifest}>
+              {scanBusy || saving
+                ? t('Creating…', '新建中…')
+                : t('Create manifest', '新建名片')}
+            </button>
+          )}
+          {needsRead && (
+            <button className="btn btn-sm btn-primary" type="button"
+              disabled={!engineId || reading} onClick={readManifest}>
+              {reading ? t('Reading…', '读取中…') : t('Read parameters', '读取参数')}
+            </button>
+          )}
 
           {ready && (
             <code className="wz-identity-path">{`engines/${engineId}/manifest.json`}</code>
@@ -153,25 +172,37 @@ export default function EngineIdentity ({
 
           <span className="wz-identity-spacer" />
 
-          {/* 有错时按钮照样能点：点了不存，只把挡着的问题列出来。
-              灰掉的按钮不告诉人缺什么，而提前列出来又是进门就一片红。 */}
+          {/* 有错也照存：名片可以只写一半，错误只列出来提示，不挡保存。
+              只有「保存中」会挡住按钮：防重复提交。没有 id 时点保存会说明
+              原因，因为 id 决定写到哪个目录，不是能力门槛。 */}
           {/* 填表 / JSON 的切换挂在保存按钮左边：它是整栏视图的开关，
               属于这一行的页面级动作，不该在表单上方另起一行。 */}
           {viewSwitch}
           <button className="btn btn-sm btn-primary" type="button"
-            disabled={!ready || saving}
-            onClick={() => { if (hasErrors) { setTriedSave(true); return } save() }}>
+            disabled={saving}
+            onClick={() => {
+              if (hasErrors) setTriedSave(true)
+              if (!manifest || !manifest.id) {
+                setLocalErr(t('Give this card an id first; it decides where the file is written.',
+                  '先给名片一个 id：它决定文件写到哪个目录。'))
+                return
+              }
+              setLocalErr(null)
+              save()
+            }}>
             {saving ? t('Saving…', '保存中…') : t('Save', '保存')}
           </button>
         </div>
 
-        {localErr && <div className="msg msg-danger">{localErr}</div>}
+        {localErr && (
+          <div className="msg msg-danger" style={{ marginTop: 'var(--sp-8)' }}>{localErr}</div>
+        )}
 
-        {/* 点了保存但有硬错：列出前 5 条，说清为什么没存。修完一条少一条，修完就消失。 */}
+        {/* 有硬错也照样保存：这里只说明它们会挡住第 5 步，不是保存门槛。 */}
         {triedSave && hasErrors && (
-          <div className="msg msg-danger">
-            <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
-              `还有 ${diag.summary.errors} 处问题，修正后才能保存：`)}</strong>
+          <div className="msg msg-danger" style={{ marginTop: 'var(--sp-8)' }}>
+            <strong>{t(`${diag.summary.errors} problem(s) do not block saving; under the current declaration the matching call path is missing arguments:`,
+              `还有 ${diag.summary.errors} 处问题，不影响保存；按当前声明，对应的调用路径会缺参数：`)}</strong>
             {(diag.diagnostics || []).filter((d) => d.level === 'error').slice(0, 5).map((d, i) => {
               const where = d.section || d.field || (d.index !== undefined ? `parameters[${d.index}]` : '')
               return (

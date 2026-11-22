@@ -1,6 +1,6 @@
 'use strict'
-// computeAutoFill 的行为测试：覆盖槽位匹配、kind 判定与 args 写法三件事。
-// computeAutoFill 不抛异常，填错的名片要等平台保存时才被拒，所以只能靠测试守住。
+// computeCliFill 的行为测试：覆盖槽位匹配、kind 判定与 args 写法三件事。
+// computeCliFill 不抛异常，填错的名片要等平台保存时才被拒，所以只能靠测试守住。
 // 被测代码是 tools/engine-wizard/editor/scanAutofill.js 里的那份实现，
 // 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出，不在此处重抄。
 // 它是纯函数文件，不 import react 与任何组件。
@@ -14,7 +14,7 @@ const EDITOR_DIR = path.join(__dirname, '..', 'editor')
 const SOURCE = path.join(EDITOR_DIR, 'scanAutofill.js')
 
 /**
- * 加载 scanAutofill.js 里的 computeAutoFill。
+ * 加载 scanAutofill.js 里的 computeCliFill。
  * @returns {Function|null} 拿不到编译依赖时返回 null，由守卫用例报错，不静默跳过。
  */
 function loadComputeAutoFill () {
@@ -39,18 +39,33 @@ function loadComputeAutoFill () {
   new Function('exports', 'require', 'module', shapeSrc)(shapeMod.exports, () => {
     throw new Error('paramShape 不该有依赖')
   }, shapeMod)
+  // weightsField 也是零依赖的纯函数文件（读写「模型权重」那一格），加载真的那一份。
+  const weightSrc = esbuild.transformSync(
+    fs.readFileSync(path.join(EDITOR_DIR, 'weightsField.js'), 'utf8'),
+    { loader: 'js', format: 'cjs', target: 'node18' }).code
+  const weightMod = { exports: {} }
+  // eslint-disable-next-line no-new-func
+  new Function('exports', 'require', 'module', weightSrc)(weightMod.exports, () => {
+    throw new Error('weightsField 不该有依赖')
+  }, weightMod)
+
   const stub = (id) => {
     if (/paramShape/.test(id)) return shapeMod.exports
+    if (/weightsField/.test(id)) return weightMod.exports
     if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
-    throw new Error('computeAutoFill 的依赖不该被求值：' + id)
+    throw new Error('computeCliFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
   const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
   run(mod.exports, stub, mod, SOURCE, EDITOR_DIR)
-  return mod.exports.computeAutoFill
+  return mod.exports
 }
 
-const computeAutoFill = loadComputeAutoFill()
+const scan = loadComputeAutoFill()
+const computeCliFill = scan && scan.computeCliFill
+const withPythonEntryFromScan = scan && scan.withPythonEntryFromScan
+const withPythonWeightsFromScan = scan && scan.withPythonWeightsFromScan
+const computePythonFill = scan && scan.computePythonFill
 
 // 夹具：/wizard/discover 的返回，形状取自 paramDigest 的统一层。
 //   cli 路    name 是命令行开关去掉横线的部分，target 是开关本身，
@@ -71,14 +86,14 @@ const pythonParams = [
 const mixedParams = [...cliParams, ...pythonParams]
 
 test('守卫：这份测试真的拿到了活代码里的那个纯函数', () => {
-  assert.equal(typeof computeAutoFill, 'function',
-    '没拿到 computeAutoFill。缺 esbuild 依赖时这一条会红，'
+  assert.equal(typeof computeCliFill, 'function',
+    '没拿到 computeCliFill。缺 esbuild 依赖时这一条会红，'
     + '那是环境问题，不要连同下面那些一起跳过。')
 })
 
 // 槽位匹配：候选名对的是 name，写进 bind 的必须是 target。
 test('cli 参数：按 dest 名认槽位，认出来的是命令行开关', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  const r = computeCliFill(cliParams, { kind: 'cli' })
   assert.deepStrictEqual(r.matched, {
     text: '--text',
     ref_audio: '--voice',
@@ -97,7 +112,7 @@ test('同义写法：输入文本、目标文本、输出文件、说话人音�
     source: 'cli', name, target, kind: 'str', style: 'value',
     help: null, required: false, group: '(root)', is_tool: false,
   })
-  const r = computeAutoFill([
+  const r = computeCliFill([
     p('input_text', '--input_text'),
     p('output_file', '--output_file'),
     p('speaker_wav', '--speaker_wav'),
@@ -111,12 +126,12 @@ test('同义写法：输入文本、目标文本、输出文件、说话人音�
   assert.strictEqual(r.confidence.bind.text.level, 'certain', '输入文本是同义名，按确定处理')
   assert.strictEqual(r.confidence.bind.ref_audio.level, 'guess', '说话人音频只是相近名，要人核对')
 
-  const r2 = computeAutoFill([p('target_text', '--target_text')], { kind: 'cli' })
+  const r2 = computeCliFill([p('target_text', '--target_text')], { kind: 'cli' })
   assert.strictEqual(r2.call.bind.text, '--target_text')
 })
 
 test('python 参数：按参数名认槽位，填进 bind 的就是那个参数名', () => {
-  const r = computeAutoFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
+  const r = computeCliFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
   assert.deepStrictEqual(r.matched, {
     text: 'tts_text',
     ref_audio: 'ref_audio',
@@ -131,13 +146,13 @@ test('python 参数：按参数名认槽位，填进 bind 的就是那个参数�
 })
 
 test('两条路混在一张表里：两个来源各自的候选名都要认得出', () => {
-  const r = computeAutoFill(mixedParams, { kind: 'cli' })
+  const r = computeCliFill(mixedParams, { kind: 'cli' })
   // --text 与 --voice 先被认走；save_path 这种 python 参数名也要认得出
   assert.equal(r.matched.text, '--text')
   assert.equal(r.matched.ref_audio, '--voice')
   assert.equal(r.matched.output_path, '--output')
   // python 侧的候选名同样要能认：换一个只有 python 路才有的名字
-  const onlyPy = computeAutoFill(
+  const onlyPy = computeCliFill(
     pythonParams.concat([{ source: 'cli', name: 'unrelated', target: '--unrelated', kind: 'boolean', help: null, required: false, group: 'infer', is_tool: false }]),
     { kind: 'cli' })
   assert.equal(onlyPy.matched.output_path, 'save_path',
@@ -146,24 +161,34 @@ test('两条路混在一张表里：两个来源各自的候选名都要认得�
 
 // call.kind：来源混在一起时保持名片原来的 kind。
 test('python 名片 + 混有 cli 参数：kind 保持 python 不被改写', () => {
-  const r = computeAutoFill(mixedParams, { kind: 'python', module: 'm', class: 'C' })
+  const r = computeCliFill(mixedParams, { kind: 'python', module: 'm', class: 'C' })
   assert.equal(r.call.kind, 'python',
     '探测是同时扫两条路并合并成一张表的，有 cli 参数不等于这台引擎是 cli 形态。'
     + 'kind 被改写成 cli 之后，python 的参数名会被平台的槽位规则拒掉。')
 })
 
-test('纯 cli 参数：kind 才置成 cli', () => {
-  const r = computeAutoFill(cliParams, { kind: 'python', module: 'm', class: 'C' })
+test('名片已声明 python：纯 cli 参数也不把它改写成 cli', () => {
+  // 改写 kind 而不同步 bind，会造出「形态是 cli、绑定名却是方法参数名」的名片，
+  //   宿主解析时直接拒（真实事故：call.bind.text 写成 tts_text、kind 却是 cli）。
+  //   形态是使用者的声明，扫描只提供参数候选，不一致时给提示。
+  const r = computeCliFill(cliParams, { kind: 'python', module: 'm', class: 'C' })
+  assert.equal(r.call.kind, 'python', '扫描不该推翻已经声明的形态')
+  assert.ok((r.notes || []).some((n) => /Python 类形态|命令行的形态/.test(n.zh) || /binding names/.test(n.en)),
+    '形态与扫描结果不一致时要说明，让使用者自己切')
+})
+
+test('名片还没声明形态：纯 cli 参数按 cli 定', () => {
+  const r = computeCliFill(cliParams, {})
   assert.equal(r.call.kind, 'cli')
 })
 
 test('纯 python 参数：kind 置成 python', () => {
-  const r = computeAutoFill(pythonParams, {})
+  const r = computeCliFill(pythonParams, {})
   assert.equal(r.call.kind, 'python')
 })
 
 test('两种来源都在时，如实报出需要人工确认', () => {
-  const r = computeAutoFill(mixedParams, { kind: 'python' })
+  const r = computeCliFill(mixedParams, { kind: 'python' })
   const notes = r.notes || []
   assert.ok(notes.length > 0,
     '两种来源混在一张表里，平台替名片做决定，就要把这件事报给用户而不是默默填')
@@ -177,16 +202,16 @@ test('两种来源都在时，如实报出需要人工确认', () => {
 
 test('只有一种来源时不报「来源混在一起」这条说明', () => {
   // cli 那份会另外报一条「没有权重开关，按引擎自行定位处理」，那是另一件事。
-  for (const r of [computeAutoFill(cliParams, { kind: 'cli' }),
-    computeAutoFill(pythonParams, { kind: 'python' })]) {
+  for (const r of [computeCliFill(cliParams, { kind: 'cli' }),
+    computeCliFill(pythonParams, { kind: 'python' })]) {
     assert.ok(!r.notes.some((n) => /同时发现/.test(n.zh)),
       '来源只有一种时不该说两种来源混在一起')
   }
-  assert.deepStrictEqual(computeAutoFill(pythonParams, { kind: 'python' }).notes, [])
+  assert.deepStrictEqual(computeCliFill(pythonParams, { kind: 'python' }).notes, [])
 })
 
 test('⭐⭐⭐ 命令行里没有权重开关 ⇒ 自动写 weights=self，别留一个必然报错的空格', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, 'demo', null, [])
+  const r = computeCliFill(cliParams, { kind: 'cli' }, [], null, 'demo', null, [])
   assert.strictEqual(r.call.weights, 'self')
   assert.ok(r.notes.some((n) => /没有权重开关/.test(n.zh)),
     '要写明依据，并告诉使用者怎么改回去')
@@ -195,7 +220,7 @@ test('⭐⭐⭐ 命令行里没有权重开关 ⇒ 自动写 weights=self，别�
 })
 
 test('同名参数在两种来源里指向不同值时，如实报出来而不是挑一个', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     [cliParams[0],
       { source: 'python', name: 'text', target: 'text', kind: 'str', help: null, required: true, group: 'call', is_tool: false }],
     { kind: 'python' })
@@ -206,13 +231,13 @@ test('同名参数在两种来源里指向不同值时，如实报出来而不�
 
 // args 段：python 名片不该长出 args。
 test('纯 python 参数：不写 args 段', () => {
-  const r = computeAutoFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
+  const r = computeCliFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
   assert.equal(r.call.args, undefined,
     'kind="python" 下 args 不是认得的键，写进去名片存不下来')
 })
 
 test('python 名片 + 混有 cli 参数：args 里只准有 cli 来源的参数', () => {
-  const r = computeAutoFill(mixedParams, { kind: 'python', module: 'm', class: 'C' })
+  const r = computeCliFill(mixedParams, { kind: 'python', module: 'm', class: 'C' })
   const keys = Object.keys(r.call.args || {})
   assert.deepStrictEqual(keys.filter((k) => !cliParams.some((p) => p.name === k)), [],
     'python 来源的参数名被写进了 call.args')
@@ -222,7 +247,7 @@ test('cli 名片 + 混有 python 参数：args 里仍只准有 cli 来源的参�
   // 这条是按 source 分流的判据：名片是 cli 形态（于是 args 段会走），
   // 这一组参数里却混着 python 参数。少了 source 判断，python 的参数名会带着
   // flag 键进 args 段，而那是一条上游不认识的命令行开关。
-  const r = computeAutoFill(mixedParams, { kind: 'cli' })
+  const r = computeCliFill(mixedParams, { kind: 'cli' })
   assert.deepStrictEqual(Object.keys(r.call.args || {}).sort(),
     ['output', 'text', 'voice'],
     'python 来源的参数名被写进了 cli 名片的 args 段')
@@ -233,7 +258,7 @@ test('cli 名片 + 混有 python 参数：args 里仍只准有 cli 来源的参�
 })
 
 test('纯 cli 参数：args 里是 dest 名到开关的映射，且 style 是宿主认得的词', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  const r = computeCliFill(cliParams, { kind: 'cli' })
   assert.deepStrictEqual(r.call.args, {
     text: { flag: '--text', style: 'value' },
     voice: { flag: '--voice', style: 'value' },
@@ -245,7 +270,7 @@ test('args 里的 style 必须是宿主认得的词（统一层的类型名不�
   // 统一层把类型归成 str / boolean / array，宿主的 args 段认的是
   // value / boolean / repeat，两张表不是一个。
   const { ARG_STYLES } = require(path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'hostProfile'))
-  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  const r = computeCliFill(cliParams, { kind: 'cli' })
   for (const [name, entry] of Object.entries(r.call.args || {})) {
     assert.ok(ARG_STYLES.includes(entry.style),
       `call.args.${name}.style 写的是 "${entry.style}"`
@@ -255,7 +280,7 @@ test('args 里的 style 必须是宿主认得的词（统一层的类型名不�
 
 // 用户手填的值不被扫描结果覆盖。
 test('用户已手填的 bind 不被扫描结果覆盖', () => {
-  const r = computeAutoFill(cliParams, {
+  const r = computeCliFill(cliParams, {
     kind: 'cli',
     bind: { text: '--tts-text' },
   })
@@ -267,7 +292,7 @@ test('用户已手填的 bind 不被扫描结果覆盖', () => {
 })
 
 test('用户已手填的 args 不被扫描结果覆盖', () => {
-  const r = computeAutoFill(cliParams, {
+  const r = computeCliFill(cliParams, {
     kind: 'cli',
     args: { text: { flag: '--tts-text', style: 'value' } },
   })
@@ -277,13 +302,13 @@ test('用户已手填的 args 不被扫描结果覆盖', () => {
 
 // 没有参数就没有建议。
 test('参数为空/null/空数组：返回 null', () => {
-  assert.equal(computeAutoFill([], { kind: 'cli' }), null)
-  assert.equal(computeAutoFill(null, { kind: 'cli' }), null)
-  assert.equal(computeAutoFill(undefined, { kind: 'cli' }), null)
+  assert.equal(computeCliFill([], { kind: 'cli' }), null)
+  assert.equal(computeCliFill(null, { kind: 'cli' }), null)
+  assert.equal(computeCliFill(undefined, { kind: 'cli' }), null)
 })
 
 test('认不出槽位时 matched 是空值，不许瞎猜一个', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     [{ source: 'cli', name: 'speed', target: '--speed', kind: 'number', help: null, required: false, group: 'infer', is_tool: false }],
     { kind: 'cli' })
   assert.deepStrictEqual(r.matched, { text: null, ref_audio: null, ref_text: null, output_path: null })
@@ -292,11 +317,11 @@ test('认不出槽位时 matched 是空值，不许瞎猜一个', () => {
 test('不改传进来的名片：入参不被就地改写', () => {
   const card = { kind: 'python', module: 'm', class: 'C', bind: {} }
   const snapshot = JSON.stringify(card)
-  computeAutoFill(mixedParams, card)
-  assert.equal(JSON.stringify(card), snapshot, 'computeAutoFill 就地改了入参')
+  computeCliFill(mixedParams, card)
+  assert.equal(JSON.stringify(card), snapshot, 'computeCliFill 就地改了入参')
 })
 test('prompt_text 是参考文本，不许被认成合成文本', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'cli', name: 'prompt_text', target: '--prompt-text', kind: 'str', style: 'value', help: null, required: false, group: 'infer', is_tool: false },
     { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value', help: null, required: true, group: 'infer', is_tool: false },
   ], { kind: 'cli' })
@@ -314,7 +339,7 @@ test('参考文本：候选名认得出就填进 bind.ref_text，cli 写开关�
     ['ref-text', '--ref-text', 'cli'],
   ]
   for (const [name, target, source] of cases) {
-    const r = computeAutoFill([
+    const r = computeCliFill([
       { source, name: 'text', target: source === 'cli' ? '--text' : 'text', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
       { source, name, target, kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
     ], {})
@@ -325,13 +350,13 @@ test('参考文本：候选名认得出就填进 bind.ref_text，cli 写开关�
 })
 
 test('参考文本：认不出不瞎猜，bind 里也不出现 ref_text', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  const r = computeCliFill(cliParams, { kind: 'cli' })
   assert.equal(r.matched.ref_text, null)
   assert.ok(!('ref_text' in r.call.bind))
 })
 
 test('参考文本：名片里已经绑了的不被扫描覆盖', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'cli', name: 'prompt_text', target: '--prompt_text', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
   ], { kind: 'cli', bind: { ref_text: '--transcript' } })
   assert.equal(r.call.bind.ref_text, '--transcript')
@@ -344,7 +369,7 @@ test('参考文本：名片里已经绑了的不被扫描覆盖', () => {
 // 候选由第三个参数单独递进来：只用于认槽位，不进 parameters[]。
 
 test('bind 候选：output_path 从候选里认出来并写进 call.bind', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
   ], { kind: 'python' }, [
     { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
@@ -354,7 +379,7 @@ test('bind 候选：output_path 从候选里认出来并写进 call.bind', () =>
 })
 
 test('bind 候选：引擎那边叫 output_dir 也算输出槽位', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
   ], { kind: 'python' }, [
     { name: 'output_dir', target: 'output_dir', phase: 'call', bind_slot: 'output_path' },
@@ -364,7 +389,7 @@ test('bind 候选：引擎那边叫 output_dir 也算输出槽位', () => {
 
 // 回归守卫：不给候选时必须和加这个功能之前一模一样，认不出就是认不出，不瞎猜。
 test('bind 候选：不给候选时行为不变，output_path 仍认不出', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
   ], { kind: 'python' })
   assert.equal(r.matched.output_path, null)
@@ -372,7 +397,7 @@ test('bind 候选：不给候选时行为不变，output_path 仍认不出', () 
 })
 
 test('bind 候选：params 里已有的同名参数优先，不被候选覆盖', () => {
-  const r = computeAutoFill([
+  const r = computeCliFill([
     { source: 'python', name: 'output_path', target: 'real_one', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
   ], { kind: 'python' }, [
     { name: 'output_path', target: 'from_candidate', phase: 'call', bind_slot: 'output_path' },
@@ -385,8 +410,8 @@ test('bind 候选：只用于认槽位，不进参数清单', () => {
   const params = [
     { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
   ]
-  const before = computeAutoFill([...params], { kind: 'python' })
-  const after = computeAutoFill([...params], { kind: 'python' }, [
+  const before = computeCliFill([...params], { kind: 'python' })
+  const after = computeCliFill([...params], { kind: 'python' }, [
     { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
   ])
   assert.deepEqual(after.argList, before.argList)
@@ -398,7 +423,7 @@ test('运行设备的参数自动打上标记，按 torch 写法', () => {
     source: 'cli', name: 'device', target: '--device', kind: 'str',
     style: 'value', help: null, required: false, group: 'infer', is_tool: true,
   }]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.deepEqual(r.call.args.device, {
     flag: '--device', style: 'value', role: 'device', device_format: 'torch',
   })
@@ -411,7 +436,7 @@ test('设备参数是整数类型时按编号写法标记', () => {
     source: 'cli', name: 'device', target: '--device', kind: 'number',
     style: 'value', help: null, required: false, group: 'infer', is_tool: true,
   }]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.equal(r.call.args.device.device_format, 'index',
     '整数类型的 device 是 CUDA 编号，不是 torch 设备字符串')
 })
@@ -421,7 +446,7 @@ test('名字不像设备的参数不打标记，但要进 call_time（否则宿�
     source: 'cli', name: 'accelerator', target: '--accelerator', kind: 'str',
     style: 'value', help: null, required: false, group: 'infer', is_tool: true,
   }]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.equal(r.call.args.accelerator.role, undefined)
   assert.deepEqual(r.callTime, ['accelerator'])
 })
@@ -431,7 +456,7 @@ test('带横线的开关也认得出槽位：归一化只用于匹配，落盘�
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'infer', source_file: 'cli.py' },
     { source: 'cli', name: 'output-dir', target: '--output-dir', kind: 'str', style: 'value', required: false, group: 'infer', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.equal(r.call.bind.output_path, '--output-dir', '带横线的落点开关此前绑不上')
 })
 
@@ -440,12 +465,12 @@ test('输出形态按落点开关名推：以 _dir 结尾的判成目录', () =>
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'infer', source_file: 'cli.py' },
     { source: 'cli', name: 'save-dir', target: '--save-dir', kind: 'str', style: 'value', required: false, group: 'infer', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.equal(r.call.returns, 'dir', '名字以 _dir 结尾时引擎收的是目录，文件名它自己起')
 })
 
 test('收文件名的引擎不写 returns，缺省就是 file', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  const r = computeCliFill(cliParams, { kind: 'cli' })
   assert.equal(r.call.returns, undefined)
 })
 
@@ -454,13 +479,13 @@ test('已经写过 returns 的不覆盖：那是使用者的决定', () => {
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'infer', source_file: 'cli.py' },
     { source: 'cli', name: 'save-dir', target: '--save-dir', kind: 'str', style: 'value', required: false, group: 'infer', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli', returns: 'file' })
+  const r = computeCliFill(params, { kind: 'cli', returns: 'file' })
   assert.equal(r.call.returns, 'file')
 })
 
 // 入口嗅探结果（entry）要真正用上：模块名与子命令写进 argv，而不是认出来就完。
 test('占位符换成嗅探到的模块名，子命令补在模块后面', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     cliParams,
     { kind: 'cli', argv: ['{engine_python}', '-m', '__MODULE__', 'infer'] },
     [],
@@ -470,7 +495,7 @@ test('占位符换成嗅探到的模块名，子命令补在模块后面', () =>
 })
 
 test('骨架里已有子命令时不重复插一个', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     cliParams,
     { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_', 'synth'] },
     [],
@@ -480,7 +505,7 @@ test('骨架里已有子命令时不重复插一个', () => {
 })
 
 test('argv 已写着具体模块名时不改写：那是使用者的决定', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     cliParams,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'my_own.entry'] },
     [],
@@ -490,7 +515,7 @@ test('argv 已写着具体模块名时不改写：那是使用者的决定', () 
 })
 
 test('模块名能落定时工作目录指到引擎目录上', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     cliParams,
     { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_'] },
     [],
@@ -501,7 +526,7 @@ test('模块名能落定时工作目录指到引擎目录上', () => {
 })
 
 test('src 布局：工作目录落到引擎目录下的 src，模块名不带 src. 前缀', () => {
-  const r = computeAutoFill(
+  const r = computeCliFill(
     cliParams,
     { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_'] },
     [],
@@ -520,7 +545,7 @@ test('认出入口后，args 只从入口那个文件收，别的脚本的开关
     // 同仓库的量化脚本也有参数：收进来就是别人的旋钮
     { source: 'cli', name: 'tp_size', target: '--tp_size', kind: 'number', style: 'value', required: false, group: '(root)', source_file: 'quantize.py' },
   ]
-  const r = computeAutoFill(
+  const r = computeCliFill(
     params,
     { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_'] },
     [],
@@ -536,7 +561,7 @@ test('扫不出入口时不设限：args 保持原有行为', () => {
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: '(root)', source_file: 'cli/inference.py' },
     { source: 'cli', name: 'tp_size', target: '--tp_size', kind: 'number', style: 'value', required: false, group: '(root)', source_file: 'quantize.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.ok(r.call.args.tp_size, '没有入口线索时不过滤，维持旧行为')
 })
 
@@ -545,7 +570,7 @@ test('音频类输入按嗅探建议打 role，名字进 call_time 白名单', (
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
     { source: 'cli', name: 'emotion-audio', target: '--emotion-audio', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' }, [], null, null, {
+  const r = computeCliFill(params, { kind: 'cli' }, [], null, null, {
     audio_params: ['emotion_audio'], weight_slots: [], output_formats: [],
   })
   assert.strictEqual(r.call.args['emotion-audio'].role, 'audio_ref')
@@ -557,7 +582,7 @@ test('没嗅探到就不打 role：平台不替人猜', () => {
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
     { source: 'cli', name: 'emotion_audio', target: '--emotion_audio', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.strictEqual(r.call.args.emotion_audio.role, undefined)
 })
 
@@ -566,7 +591,7 @@ test('格式开关按嗅探建议打 role，名字进 call_time 白名单', () =
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
     { source: 'cli', name: 'output-format', target: '--output-format', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py', choices: ['wav', 'mp3'] },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' }, [], null, null, {
+  const r = computeCliFill(params, { kind: 'cli' }, [], null, null, {
     audio_params: [], weight_slots: [], output_formats: ['wav', 'mp3'], format_arg: 'output_format',
   })
   assert.strictEqual(r.call.args['output-format'].role, 'output_format')
@@ -574,7 +599,7 @@ test('格式开关按嗅探建议打 role，名字进 call_time 白名单', () =
 })
 
 test('顶层声明建议回传，由调用方按已有声明决定是否落盘', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, null, {
+  const r = computeCliFill(cliParams, { kind: 'cli' }, [], null, null, {
     audio_params: [],
     weight_slots: [{ name: 'gpt', param: 'gpt_model', applies_at: 'call' }],
     output_formats: ['wav', 'mp3'],
@@ -597,7 +622,7 @@ const withModel = [
 ]
 
 test('扫描认出模型目录开关 ⇒ 自动接上权重落点，名片不再缺「模型权重」', () => {
-  const r = computeAutoFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
+  const r = computeCliFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
   assert.deepStrictEqual(r.call.argv.slice(-2), ['--model_dir', '{checkpoints}'])
   assert.ok(r.notes.some((n) => /权重落点/.test(n.zh)), '自动接线要在说明里留痕，便于核对')
   assert.strictEqual(r.call.args.model_dir.flag, '--model_dir', '开关本身仍留在 args 里')
@@ -605,13 +630,13 @@ test('扫描认出模型目录开关 ⇒ 自动接上权重落点，名片不再
 
 test('名片里已写着权重落点 ⇒ 不再追加，使用者的写法优先', () => {
   const cur = { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_', '--ckpt', '{checkpoints}'] }
-  const r = computeAutoFill(withModel, cur, [], entryForWeights, 'demo')
+  const r = computeCliFill(withModel, cur, [], entryForWeights, 'demo')
   assert.deepStrictEqual(r.call.argv.slice(-2), ['--ckpt', '{checkpoints}'])
   assert.strictEqual(r.call.argv.length, 5, '不该出现第二对权重参数')
 })
 
 test('引擎自行定位权重 ⇒ 不补落点', () => {
-  const r = computeAutoFill(withModel, { kind: 'cli', weights: 'self' }, [], entryForWeights, 'demo')
+  const r = computeCliFill(withModel, { kind: 'cli', weights: 'self' }, [], entryForWeights, 'demo')
   assert.ok(!r.call.argv.some((w) => String(w).includes('{checkpoints}')))
 })
 
@@ -620,18 +645,18 @@ test('没有入口线索且命中不止一个模型开关 ⇒ 不替使用者挑
     ...withModel,
     { source: 'cli', name: 'ckpt_dir', target: '--ckpt-dir', kind: 'str', style: 'value', group: 'infer', source_file: 'other.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' }, [], null, 'demo')
+  const r = computeCliFill(params, { kind: 'cli' }, [], null, 'demo')
   assert.ok(!r.call.argv.some((w) => String(w).includes('{checkpoints}')),
     '多个候选且没有入口证据时，接错目录会让引擎加载错权重')
 })
 
 test('没有入口线索但只命中一个模型开关 ⇒ 仍然自动接上', () => {
-  const r = computeAutoFill(withModel, { kind: 'cli' }, [], null, 'demo')
+  const r = computeCliFill(withModel, { kind: 'cli' }, [], null, 'demo')
   assert.deepStrictEqual(r.call.argv.slice(-2), ['--model_dir', '{checkpoints}'])
 })
 
 test('python 形态不往 argv 里写权重落点', () => {
-  const r = computeAutoFill(pythonParams, { kind: 'python' }, [], null, 'demo')
+  const r = computeCliFill(pythonParams, { kind: 'python' }, [], null, 'demo')
   assert.strictEqual(r.call.argv, undefined)
 })
 
@@ -654,7 +679,7 @@ const exactSlots = [
 ]
 
 test('规范同名且证据落在入口文件 ⇒ 四个槽位与入口都标成确定', () => {
-  const r = computeAutoFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
+  const r = computeCliFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
   for (const key of ['text', 'ref_audio', 'ref_text', 'output_path']) {
     assert.ok(r.matched[key], key + ' 应当认得出')
     assert.strictEqual(r.confidence.bind[key].level, 'certain', key)
@@ -663,7 +688,7 @@ test('规范同名且证据落在入口文件 ⇒ 四个槽位与入口都标成
 })
 
 test('置信度与匹配结果一一对应，不凭空多出一格', () => {
-  const r = computeAutoFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
+  const r = computeCliFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
   assert.deepStrictEqual(Object.keys(r.confidence.bind).sort(), Object.keys(r.matched).sort())
   for (const key of Object.keys(r.matched)) {
     assert.strictEqual(!!r.confidence.bind[key], !!r.matched[key])
@@ -678,7 +703,7 @@ test('按相近名匹配 ⇒ 标成推测，依据点名相近参数与更贴切
     cliInEntry('input_file', '--input-file'),
   ]
   const entry = { ...declaredEntry, confidence: 'medium' }
-  const r = computeAutoFill(params, { kind: 'cli' }, [], entry, 'demo')
+  const r = computeCliFill(params, { kind: 'cli' }, [], entry, 'demo')
   assert.strictEqual(r.matched.text, null, '没有文本开关时不该硬填一格')
   assert.strictEqual(r.confidence.bind.text, null)
   assert.strictEqual(r.matched.ref_audio, '--speaker')
@@ -695,7 +720,7 @@ test('按相近名匹配 ⇒ 标成推测，依据点名相近参数与更贴切
 
 test('另有更贴切的规范名也在扫描结果里 ⇒ 即使同名也降为推测', () => {
   const params = [...exactSlots, cliInEntry('output_file', '--output-file')]
-  const r = computeAutoFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
+  const r = computeCliFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
   assert.strictEqual(r.confidence.bind.output_path.level, 'guess')
   assert.match(r.confidence.bind.output_path.reason.zh, /--output-file/)
 })
@@ -703,20 +728,20 @@ test('另有更贴切的规范名也在扫描结果里 ⇒ 即使同名也降为
 test('同名开关不在入口文件里 ⇒ 标成推测并写出所在文件', () => {
   const params = exactSlots.map((p) => p.name === 'text'
     ? { ...p, source_file: 'tools/other_cli.py' } : p)
-  const r = computeAutoFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
+  const r = computeCliFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
   assert.strictEqual(r.confidence.bind.text.level, 'guess')
   assert.match(r.confidence.bind.text.reason.zh, /tools\/other_cli\.py/)
 })
 
 test('输出形态由名片自己声明 ⇒ 不产生推断记录', () => {
   const params = [cliInEntry('output_dir', '--output-dir')]
-  const r = computeAutoFill(params, { kind: 'cli', returns: 'file' }, [], declaredEntry, 'demo')
+  const r = computeCliFill(params, { kind: 'cli', returns: 'file' }, [], declaredEntry, 'demo')
   assert.strictEqual(r.confidence.returns, null)
   assert.strictEqual(r.call.returns, 'file')
 })
 
 test('权重落点按名字排序接上 ⇒ 标成推测，并记下接的是哪个开关', () => {
-  const r = computeAutoFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
+  const r = computeCliFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
   assert.strictEqual(r.confidence.weights.level, 'guess')
   assert.strictEqual(r.confidence.weights.flag, '--model_dir')
 })
@@ -727,7 +752,7 @@ const withSeedFlag = [...cliParams,
   { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', help: null, required: false, group: 'infer', is_tool: false }]
 
 test('可复现性：扫到同名 seed 开关 ⇒ 按「引擎自己收」写，并补出 call.args 那一条', () => {
-  const r = computeAutoFill(withSeedFlag, { kind: 'cli' }, [], null, 'demo')
+  const r = computeCliFill(withSeedFlag, { kind: 'cli' }, [], null, 'demo')
   assert.deepStrictEqual(r.call.seed, { arg: 'seed' },
     'cli 的种子参数名是 call.args 的键，不是开关本身')
   assert.deepStrictEqual(r.call.args.seed, { flag: '--seed', style: 'value' },
@@ -735,20 +760,20 @@ test('可复现性：扫到同名 seed 开关 ⇒ 按「引擎自己收」写，
 })
 
 test('可复现性：扫不到种子开关 ⇒ 写「不可复现」，不留空', () => {
-  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, 'demo')
+  const r = computeCliFill(cliParams, { kind: 'cli' }, [], null, 'demo')
   assert.strictEqual(r.call.seed, 'none',
     '缺了这一项保存与启动都会被拒；「不可复现」是唯一不需要额外信息的答案')
 })
 
 test('可复现性：名片已经写过 seed ⇒ 不覆盖', () => {
-  const r = computeAutoFill(withSeedFlag, { kind: 'cli', seed: { mode: 'global', rngs: ['torch'] } }, [], null, 'demo')
+  const r = computeCliFill(withSeedFlag, { kind: 'cli', seed: { mode: 'global', rngs: ['torch'] } }, [], null, 'demo')
   assert.deepStrictEqual(r.call.seed, { mode: 'global', rngs: ['torch'] })
 })
 
 // 嗅探这条路上，seed 与其它参数同一套：扫到同名开关就是证据。
 //   名片里原本写着 "none" 的允许升级，但要把这次改动说出来，不能悄悄改。
 test('可复现性：名片写着 none、扫到 seed 开关 ⇒ 升级为「引擎自己收」并提示', () => {
-  const r = computeAutoFill(withSeedFlag, { kind: 'cli', seed: 'none' }, [], null, 'demo')
+  const r = computeCliFill(withSeedFlag, { kind: 'cli', seed: 'none' }, [], null, 'demo')
   assert.deepStrictEqual(r.call.seed, { arg: 'seed' })
   assert.ok(r.notes.some((n) => /「不可复现」/.test(n.zh)), '升级要说出来，别让人以为一直就是这样')
 })
@@ -759,7 +784,7 @@ test('可复现性：入口文件里有同名 seed ⇒ 优先取入口里的那�
     { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', source_file: 'train/s1_train.py' },
     { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', source_file: 'cli/infer.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' }, [], entry, 'demo')
+  const r = computeCliFill(params, { kind: 'cli' }, [], entry, 'demo')
   assert.deepStrictEqual(r.call.seed, { arg: 'seed' })
   assert.deepStrictEqual(r.call.args.seed, { flag: '--seed', style: 'value' })
 })
@@ -767,7 +792,7 @@ test('可复现性：入口文件里有同名 seed ⇒ 优先取入口里的那�
 test('可复现性：已经写成 {arg} 的不被扫描改写', () => {
   const cur = { kind: 'cli', seed: { arg: 'random_seed' },
     args: { random_seed: { flag: '--random-seed', style: 'value' } } }
-  const r = computeAutoFill(withSeedFlag, cur, [], null, 'demo')
+  const r = computeCliFill(withSeedFlag, cur, [], null, 'demo')
   assert.deepStrictEqual(r.call.seed, { arg: 'random_seed' }, '已声明的参数名不被扫描改写')
   assert.deepStrictEqual(r.call.args.random_seed,
     { flag: '--random-seed', style: 'value' }, '原来那条 args 形状也在')
@@ -782,14 +807,14 @@ const wParam = (name, help) => ({
 })
 
 test('模型权重：开关名带 dir ⇒ 值给下载目录', () => {
-  const r = computeAutoFill([wParam('model_dir', 'Path to the model folder')],
+  const r = computeCliFill([wParam('model_dir', 'Path to the model folder')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['a.onnx', 'b.onnx'])
   assert.ok(r.call.argv.includes('{checkpoints}'))
   assert.ok(!r.call.argv.some((w) => String(w).startsWith('{checkpoints}/')))
 })
 
 test('模型权重：开关名与说明都指向文件，且盘上恰好一个权重文件 ⇒ 写文件名', () => {
-  const r = computeAutoFill([wParam('model_file', 'Path to the .onnx model file')],
+  const r = computeCliFill([wParam('model_file', 'Path to the .onnx model file')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['voices/model.onnx', 'README.md'])
   assert.ok(r.call.argv.includes('{checkpoints}/model.onnx'),
     '盘上唯一那个权重文件才写进去')
@@ -797,13 +822,13 @@ test('模型权重：开关名与说明都指向文件，且盘上恰好一个�
 })
 
 test('模型权重：只是名字像目录、盘上只有一个文件，也不改成文件名', () => {
-  const r = computeAutoFill([wParam('model', 'Model directory')],
+  const r = computeCliFill([wParam('model', 'Model directory')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['model.onnx'])
   assert.ok(r.call.argv.includes('{checkpoints}'), '证据不足时按目录写')
 })
 
 test('模型权重：说明指向文件但盘上两个权重 ⇒ 先接目录并说明要手写文件名', () => {
-  const r = computeAutoFill([wParam('model_file', 'Path to the model file')],
+  const r = computeCliFill([wParam('model_file', 'Path to the model file')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['a.onnx', 'b.onnx'])
   assert.ok(r.call.argv.includes('{checkpoints}'))
   assert.ok(r.notes.some((n) => /手写 \{checkpoints\}\/文件名/.test(n.zh)))
@@ -817,21 +842,21 @@ const vecParam = (help) => ({
 })
 
 test('扫描回填：逗号分隔的八维向量 ⇒ call.args 写 join，不是 value', () => {
-  const r = computeAutoFill([vecParam('Comma-separated 8-dimensional emotion vector')],
+  const r = computeCliFill([vecParam('Comma-separated 8-dimensional emotion vector')],
     { kind: 'cli' }, [], { file: 'cli/infer.py' }, 'demo')
   assert.deepStrictEqual(r.call.args['emotion-vector'],
     { flag: '--emotion-vector', style: 'join', join: ',' })
 })
 
 test('扫描回填：普通参数仍是 value，不被这条判定波及', () => {
-  const r = computeAutoFill([wParam('speaker', 'Speaker id')],
+  const r = computeCliFill([wParam('speaker', 'Speaker id')],
     { kind: 'cli' }, [], W_ENTRY, 'demo')
   assert.equal(r.call.args.speaker.style, 'value')
 })
 
 test('扫描回填：名片里已经写过的那条不动（手填的映射比扫描准）', () => {
   const cur = { kind: 'cli', args: { 'emotion-vector': { flag: '--emo', style: 'repeat' } } }
-  const r = computeAutoFill([vecParam('Comma-separated 8-dimensional emotion vector')],
+  const r = computeCliFill([vecParam('Comma-separated 8-dimensional emotion vector')],
     cur, [], { file: 'cli/infer.py' }, 'demo')
   assert.deepStrictEqual(r.call.args['emotion-vector'], { flag: '--emo', style: 'repeat' })
 })
@@ -840,7 +865,7 @@ test('扫描回填：名片里已经写过的那条不动（手填的映射比�
 //   那种引擎的开关收的是「某个模型目录」，同一父目录下并排放着可选的模型。
 //   判据只读盘上事实：父目录下没有任何权重文件，子目录只有一个。
 test('模型权重：权重都在唯一子目录里 ⇒ 落点下探一层', () => {
-  const r = computeAutoFill([wParam('checkpoint_path', 'Path to the model folder')],
+  const r = computeCliFill([wParam('checkpoint_path', 'Path to the model folder')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null,
     ['s2-pro/config.json', 's2-pro/codec.pth', 's2-pro/model.safetensors'])
   assert.ok(r.call.argv.includes('{checkpoints}/s2-pro'), '唯一子目录要写进落点')
@@ -848,7 +873,7 @@ test('模型权重：权重都在唯一子目录里 ⇒ 落点下探一层', () 
 })
 
 test('模型权重：多个子目录 ⇒ 保持父目录（同一套模型的部件）', () => {
-  const r = computeAutoFill([wParam('model_dir', 'Model directory')],
+  const r = computeCliFill([wParam('model_dir', 'Model directory')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null,
     ['LLM/a.pth', 'BiCodec/b.pth', 'wav2vec2/c.bin'])
   assert.ok(r.call.argv.includes('{checkpoints}'))
@@ -856,7 +881,7 @@ test('模型权重：多个子目录 ⇒ 保持父目录（同一套模型的部
 })
 
 test('模型权重：父目录本身就有权重 ⇒ 不下探', () => {
-  const r = computeAutoFill([wParam('model_dir', 'Model directory')],
+  const r = computeCliFill([wParam('model_dir', 'Model directory')],
     { kind: 'cli' }, [], W_ENTRY, 'demo', null,
     ['gpt.pth', 's2mel.pth', 'hf_cache/x.bin'])
   assert.ok(r.call.argv.includes('{checkpoints}'), '平铺权重时父目录就是落点')
@@ -869,7 +894,7 @@ test('bind 引用的开关不进 call_time：那一条由槽位单独下发', ()
     { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
     { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
   ]
-  const r = computeAutoFill(params, { kind: 'cli' })
+  const r = computeCliFill(params, { kind: 'cli' })
   assert.equal(r.call.bind.text, '--text')
   assert.deepEqual(r.callTime, ['seed'], '只留不归槽位管的那个')
 })
@@ -887,7 +912,7 @@ const POSITIONALS = [
 const POS_ENTRY = { module: 'tts', file: 'tts.py', confidence: 'high', source: 'readme' }
 
 test('⭐⭐⭐ 位置参数写成占位符接在命令行末尾，且不再绑同一个槽位的开关', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', '__MODULE__'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null, POSITIONALS)
   assert.deepStrictEqual(r.call.argv,
@@ -901,7 +926,7 @@ test('⭐⭐⭐ 位置参数写成占位符接在命令行末尾，且不再绑�
 })
 
 test('只有位置参数的引擎不再被整段丢掉', () => {
-  const r = computeAutoFill([], { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+  const r = computeCliFill([], { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null, POSITIONALS)
   assert.ok(r, '参数表是空的，但位置参数就是它的参数')
   assert.strictEqual(r.call.kind, 'cli')
@@ -909,7 +934,7 @@ test('只有位置参数的引擎不再被整段丢掉', () => {
 })
 
 test('使用者已经把槽位绑成开关时，位置参数让位并说明怎么改回来', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: { text: '--text' }, args: {} },
     [], POS_ENTRY, 'demo', null, null, POSITIONALS)
   assert.strictEqual(r.call.bind.text, '--text')
@@ -918,7 +943,7 @@ test('使用者已经把槽位绑成开关时，位置参数让位并说明怎�
 })
 
 test('对不上槽位的位置参数只报一条说明，不硬塞进命令行', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null, [{ name: 'speaker', nargs: null, group: '(root)' }])
   assert.ok(!r.call.argv.some((w) => w.includes('{speaker}')), '平台没有这个槽位')
@@ -926,7 +951,7 @@ test('对不上槽位的位置参数只报一条说明，不硬塞进命令行',
 })
 
 test('收多个值的位置参数要提醒占位符只填一个词', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null, [{ name: 'text', nargs: '+', group: '(root)' }])
   assert.ok(r.notes.some((n) => /nargs/.test(n.zh) && /多个词/.test(n.zh)))
@@ -935,7 +960,7 @@ test('收多个值的位置参数要提醒占位符只填一个词', () => {
 // 可选位置参数（nargs ? 或 *）不能默认接：占位符每次都要有值，
 //   接上去等于把「可以不出现」变成「每次必须有」，不带它值的那次请求整条失败。
 test('⭐⭐⭐ 可以省略的位置参数不接进命令行，只报一条说明', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null,
     [{ name: 'ref_audio', nargs: '?', group: '(root)' }])
@@ -946,11 +971,199 @@ test('⭐⭐⭐ 可以省略的位置参数不接进命令行，只报一条说�
 })
 
 test('⭐⭐ 必填的位置参数照旧接上，不因为上面那条连坐', () => {
-  const r = computeAutoFill(POS_PARAMS,
+  const r = computeCliFill(POS_PARAMS,
     { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
     [], POS_ENTRY, 'demo', null, null,
     [{ name: 'text', nargs: null, group: '(root)' },
       { name: 'ref_audio', nargs: '?', group: '(root)' }])
   assert.ok(r.call.argv.includes('{text}'), '不带 nargs 的位置参数是必填的')
   assert.ok(!r.call.argv.includes('{ref_audio}'))
+})
+
+// ---- python 形态的入口：扫描回的类方法候选 ----
+//
+// computeCliFill 只处理 cli 的 argv。切到 python 之后 argv 已被删掉，
+//   若不从候选里补 module / class / method，保存下来的名片没有入口，起不来。
+
+const PY_ENTRIES = [
+  { module: 'pkg.cli', className: 'Engine', method: 'infer_sft',
+    params: { text: ['text'], ref: [], out: ['out'] } },
+  { module: 'pkg.cli', className: 'Engine', method: 'infer_zero_shot',
+    params: { text: ['tts_text'], ref: ['prompt_wav'], out: [] } },
+]
+
+test('python 形态且入口三格全空：从候选里挑一条写进名片', () => {
+  const call = { kind: 'python', bind: { text: 'tts_text' } }
+  const out = withPythonEntryFromScan(call, PY_ENTRIES)
+  assert.strictEqual(out.method, 'infer_sft', '没绑参考音频时取评分最高的第一条')
+  assert.strictEqual(out.module, 'pkg.cli')
+  assert.strictEqual(out.class, 'Engine')
+  assert.strictEqual(call.module, undefined, '原对象被动了')
+})
+
+test('名片绑了参考音频：优先有参考音频参数的方法', () => {
+  const call = { kind: 'python', bind: { text: 'tts_text', ref_audio: 'prompt_wav' } }
+  const out = withPythonEntryFromScan(call, PY_ENTRIES)
+  assert.strictEqual(out.method, 'infer_zero_shot', '只有它收参考音频')
+})
+
+test('绑了参考文本：优先收参考文本的方法', () => {
+  // zero_shot 与 cross_lingual 都收文本、都收参考音频，差别只在收不收参考文本。
+  //   名片绑了 ref_text 却不按这一条挑，会挑到 cross_lingual（不接受参考文本）。
+  const entries = [
+    { module: 'm', className: 'C', method: 'inference_cross_lingual',
+      params: { text: ['tts_text'], ref: ['prompt_wav'], out: [], model: [] },
+      names: ['tts_text', 'prompt_wav', 'stream', 'speed'] },
+    { module: 'm', className: 'C', method: 'inference_zero_shot',
+      params: { text: ['tts_text'], ref: ['prompt_wav'], out: [], model: [] },
+      names: ['tts_text', 'prompt_text', 'prompt_wav', 'stream'] },
+  ]
+  const call = { kind: 'python', bind: { text: 'tts_text', ref_audio: 'prompt_wav', ref_text: 'prompt_text' } }
+  assert.strictEqual(withPythonEntryFromScan(call, entries).method, 'inference_zero_shot')
+})
+
+test('选中的方法逐块产出：返回方式设成 generator，输出槽位摘掉', () => {
+  const entries = [
+    { module: 'm', className: 'C', method: 'infer',
+      params: { text: ['tts_text'], ref: ['prompt_wav'], out: [], model: [] },
+      names: ['tts_text', 'prompt_wav'], generator: true },
+  ]
+  const call = {
+    kind: 'python',
+    bind: { text: 'tts_text', ref_audio: 'prompt_wav', output_path: 'output_dir' },
+    returns: 'dir',
+  }
+  const out = withPythonEntryFromScan(call, entries)
+  assert.strictEqual(out.returns, 'generator', 'yield 方法只能按 generator 收')
+  assert.strictEqual(out.bind.output_path, undefined,
+    '方法不接受输出路径：留着会变成非法关键字参数')
+})
+
+test('方法不是生成器：返回方式与输出槽位都不动', () => {
+  const entries = [
+    { module: 'm', className: 'C', method: 'infer',
+      params: { text: ['tts_text'], ref: [], out: ['output'], model: [] },
+      names: ['tts_text', 'output'], generator: false },
+  ]
+  const call = { kind: 'python', bind: { text: 'tts_text', output_path: 'output' }, returns: 'dir' }
+  const out = withPythonEntryFromScan(call, entries)
+  assert.strictEqual(out.returns, 'dir')
+  assert.strictEqual(out.bind.output_path, 'output')
+})
+
+test('只写了模块名：按这个模块从候选里把类和方法补齐', () => {
+  const entries = [
+    { module: 'other.pkg', className: 'X', method: 'run',
+      params: { text: ['text'], ref: [], out: [], model: [] }, names: ['text'] },
+    { module: 'pkg.cli', className: 'Engine', method: 'infer_zero_shot',
+      params: { text: ['tts_text'], ref: ['prompt_wav'], out: [], model: [] },
+      names: ['tts_text', 'prompt_text', 'prompt_wav'] },
+  ]
+  const call = {
+    kind: 'python', module: 'pkg.cli',
+    bind: { text: 'tts_text', ref_audio: 'prompt_wav', ref_text: 'prompt_text' },
+  }
+  const out = withPythonEntryFromScan(call, entries)
+  assert.strictEqual(out.module, 'pkg.cli', '模块名是使用者写的，不许换')
+  assert.strictEqual(out.class, 'Engine', '缺的类名要补上')
+  assert.strictEqual(out.method, 'infer_zero_shot', '缺的方法名要补上')
+})
+
+test('已经写过入口：一个字都不改', () => {
+  const call = { kind: 'python', module: 'mine', class: 'Mine', method: 'run' }
+  assert.strictEqual(withPythonEntryFromScan(call, PY_ENTRIES), call,
+    '使用者的声明不被扫描覆盖')
+})
+
+test('cli 形态：入口归 argv，这里不碰', () => {
+  const call = { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.cli'] }
+  assert.strictEqual(withPythonEntryFromScan(call, PY_ENTRIES), call)
+})
+
+test('没有候选：原样返回', () => {
+  const call = { kind: 'python' }
+  assert.strictEqual(withPythonEntryFromScan(call, []), call)
+})
+
+// ---- python 形态的构造参数：模型权重 ----
+//
+// 「模型权重」那一格在 python 形态下就落在 call.init_args。值是能推的：
+//   第 3 步的落点由平台定，models.required 按盘上真实文件生成，
+//   所以模型子目录 = 文件清单里各目录的最长公共前缀。
+
+test('权重都在同一个子目录：构造参数写成 {checkpoints}/那个子目录', () => {
+  const call = { kind: 'python', module: 'm', class: 'C', method: 'run' }
+  const files = [
+    'pretrained_models/CosyVoice2-0.5B/cosyvoice2.yaml',
+    'pretrained_models/CosyVoice2-0.5B/llm.pt',
+    'pretrained_models/CosyVoice2-0.5B/hift.pt',
+  ]
+  const out = withPythonWeightsFromScan(call, files, [{ name: 'model_dir', target: '--model-dir' }])
+  assert.deepStrictEqual(out.init_args,
+    { model_dir: '{checkpoints}/pretrained_models/CosyVoice2-0.5B' })
+  assert.strictEqual(call.init_args, undefined, '原对象被动了')
+})
+
+test('权重散在多个子目录：退到 {checkpoints} 本身', () => {
+  const call = { kind: 'python' }
+  const files = ['LLM/qwen.pt', 'BiCodec/bcodec.pt']
+  const out = withPythonWeightsFromScan(call, files, [{ name: 'model_dir', target: '--model-dir' }])
+  assert.deepStrictEqual(out.init_args, { model_dir: '{checkpoints}' })
+})
+
+test('已经声明过权重参数，或写了 weights="self"：一律不动', () => {
+  const declared = { kind: 'python', init_args: { model_path: '{checkpoints}/x' } }
+  assert.strictEqual(
+    withPythonWeightsFromScan(declared, ['a/b.pt'], [{ name: 'model_dir' }]), declared)
+  const self = { kind: 'python', weights: 'self' }
+  assert.strictEqual(withPythonWeightsFromScan(self, ['a/b.pt'], [{ name: 'model_dir' }]), self)
+})
+
+test('挑不到像模型路径的参数名：留空给人填，不猜', () => {
+  const call = { kind: 'python' }
+  const out = withPythonWeightsFromScan(call, ['a/b.pt'], [{ name: 'text' }, { name: 'speed' }])
+  assert.strictEqual(out.init_args, undefined)
+})
+
+// ---- python 形态的填入：与 cli 的填入是两条路 ----
+
+const FILL_CALL = () => ({
+  kind: 'python',
+  bind: { text: 'tts_text', ref_audio: 'prompt_wav', ref_text: 'prompt_text' },
+})
+const FILL_PARAMS = [
+  { name: 'tts_text', target: 'tts_text', source: 'python' },
+  { name: 'prompt_wav', target: 'prompt_wav', source: 'python' },
+  { name: 'prompt_text', target: 'prompt_text', source: 'python' },
+  { name: 'stream', target: 'stream', source: 'python' },
+  { name: 'speed', target: 'speed', source: 'python' },
+]
+const FILL_ENTRIES = [
+  { module: 'pkg.cli', className: 'Model', method: 'inference_zero_shot',
+    params: { text: ['tts_text'], ref: ['prompt_wav'], out: [], model: [] },
+    names: ['tts_text', 'prompt_text', 'prompt_wav'], generator: true },
+]
+
+test('python 填入：绑定名是方法参数名，不写命令行开关', () => {
+  const out = computePythonFill(FILL_PARAMS, { kind: 'python' }, FILL_ENTRIES, null, [])
+  assert.strictEqual(out.call.bind.text, 'tts_text')
+  assert.strictEqual(out.call.bind.ref_audio, 'prompt_wav')
+  assert.strictEqual(out.call.bind.ref_text, 'prompt_text')
+  assert.strictEqual(out.call.args, undefined,
+    'call.args 是命令行形态的形状：写进 python 名片保存会被拒')
+})
+
+test('python 填入：逐块产出的方法把返回方式定成 generator，并摘掉输出槽位', () => {
+  const out = computePythonFill(FILL_PARAMS,
+    { kind: 'python', bind: { text: 'tts_text', output_path: 'output_dir' } },
+    FILL_ENTRIES, null, [])
+  assert.strictEqual(out.call.returns, 'generator')
+  assert.strictEqual(out.call.bind.output_path, undefined,
+    '方法不接受输出路径：留着会变成非法关键字参数')
+})
+
+test('python 填入：已有的绑定不被覆盖', () => {
+  const out = computePythonFill(FILL_PARAMS,
+    { kind: 'python', bind: { text: 'my_text' } }, FILL_ENTRIES, null, [])
+  assert.strictEqual(out.call.bind.text, 'my_text')
 })

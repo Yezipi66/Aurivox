@@ -132,3 +132,27 @@ test('没有明细表的类型不摆开合按钮：text / number / file 就是�
     assert.strictEqual(container.querySelectorAll('.wz-param-table').length, 0)
   }
 })
+
+test('手敲一个扫到的开关，类型与推测徽标一并补上', async () => {
+  // 照上游 README 抄命令是常见路径：手敲开关之后，类型、说明、候选值都要跟上，
+  //   否则这一行停在 text，合成页上长成一个文本框。
+  let picked = null
+  let marked = null
+  const scanned = [
+    { source: 'cli', name: 'output-dir', target: '--output-dir', kind: 'str', kind_certain: false,
+      style: 'value', help: 'Directory for outputs' },
+  ]
+  await show({ name: '', type: 'text', tier: 'common' }, {
+    scanned,
+    onChange: (i, next) => { picked = next },
+    onTypeGuessed: (param, name) => { marked = { param, name } },
+  })
+  const input = container.querySelector('.wz-param-argv')
+  assert.ok(input, '参数行要有命令行开关输入框')
+  Simulate.change(input, { target: { value: '--output-dir' } })
+  await settle()
+  assert.ok(picked, '敲开关之后要写回名片')
+  assert.strictEqual(picked.name, 'output-dir', '参数名由开关派生')
+  assert.strictEqual(picked.type, 'file', '说明里写着目录，类型要认成 file')
+  assert.ok(marked, '类型来自扫描结果的，要通知外层标推测')
+})

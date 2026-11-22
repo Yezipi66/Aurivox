@@ -44,11 +44,33 @@ import subprocess
 import sys
 import tempfile
 import threading
+import threading
 import time
 import traceback
 import wave
 
 BANNER = "[engine-host / 2026-08-26]"
+
+# Windows 的 stdio 默认走本地代码页（cp936）。宿主被平台或向导以管道拉起时，
+#   中文日志会写成 GBK，而两端都按 UTF-8 读，界面上就是一片乱码；
+#   stdio 模式从 stdin 读 JSON 时也会把中文请求解错。这里统一成 UTF-8。
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+# 向导校验时（AURIVOX_STREAM_ENGINE_OUTPUT=1）宿主是 HTTP 形态，stdout 空闲：
+#   宿主自己的状态行改走 stdout，与引擎 stdout 一起算正常输出，界面按两路染色时
+#   只有真正的告警与异常是红的。平台常驻（含 stdio 协议）仍写 stderr，行为不变。
+_RELAY_ENGINE_OUTPUT = os.environ.get("AURIVOX_STREAM_ENGINE_OUTPUT") == "1"
+
+
+def _status(msg):
+    """宿主的状态行：正在做什么、路径是什么。不是错误。"""
+    stream = sys.stdout if _RELAY_ENGINE_OUTPUT else sys.stderr
+    stream.write(msg)
+    stream.flush()
 
 # ---------------------------------------------------------------------------
 # 0) 洗环境：必须在 import 引擎之前
@@ -75,13 +97,45 @@ def _scrub_sys_path():
 
 _DROPPED, _KEPT = _scrub_sys_path()
 
-# 离线：宿主永远不该联网下载权重。少一条网络依赖，就少一类
-# 「第一次跑得通、换台机器跑不通」。
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("MODELSCOPE_OFFLINE", "1")
+# 联网：有些引擎在运行期才去拉权重（声码器、分词器这类小模型），
+#   宿主一律离线会把它们判成「缺文件」，而盘上只是尚未下载。
+# 判据是「谁都没有声明过」：平台没设、环境里也没有 ⇒ 放行，让引擎自己
+#   按 huggingface_hub / modelscope 的规则走；要断网由平台或使用者显式
+#   把对应变量设成 1（环境里的缓存目录由 spawnEngine 指定）。
+for _offline_key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "MODELSCOPE_OFFLINE"):
+    os.environ[_offline_key] = os.environ.get(_offline_key) or "0"
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+
+
+def _decode_text(raw):
+    """字节 → 文本：UTF-8 优先，GBK 兜底。
+
+    引擎是别人写的，在 Windows 上可能直接吐 GBK 的中文报错。硬按
+    UTF-8 + replace 会把汉字整段换成方块，比原文更难查；硬按 GBK 解
+    UTF-8 也一样糟。所以先严格 UTF-8，再严格 cp936，都不成才替换，
+    并在调用方那侧说明「这串字不是原文」。
+    """
+    for enc in ("utf-8", "cp936"):
+        try:
+            return raw.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace"), None
+
+
+def _stderr_tail_note(tail):
+    """失败信息里的 stderr 尾巴。
+
+    向导校验时两路输出已经实时推给界面（_RELAY_ENGINE_OUTPUT），再拼一遍会让
+    同一段 traceback 在日志里出现两次，反而看不出哪一段是宿主自己的调用栈。
+    """
+    if _RELAY_ENGINE_OUTPUT:
+        return ""
+    return "\n--- stderr（末尾 4000 字）---\n%s" % tail[-4000:]
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +193,54 @@ def _venv_python(venv_dir):
     if os.name == "nt":
         return os.path.join(venv_dir, "Scripts", "python.exe")
     return os.path.join(venv_dir, "bin", "python")
+
+
+# 平台自带的 ffmpeg 落在 vendor/ffmpeg/<平台>/ 下，目录名与
+#   lib/audio/ffmpeg.js 的 vendoredFfmpegPath 同一份，两边不许分叉。
+def _vendored_ffmpeg_dir(root):
+    """项目自带的 ffmpeg 所在目录；没有就返回 None。
+
+    为什么要进 PATH：上游代码（pydub 这类）自己调 "ffmpeg"，它们不读平台的
+    封装，只查 PATH。不给这条路，找不到时只在 stderr 留一行警告，到真要转码
+    那一步才失败，而那时已经离现场很远了。
+
+    目录名按平台拼，不去盘上猜：猜的话会把别的平台的二进制加进来，
+    而 Windows 上执行一个 Linux 的 ELF 会报「不是有效的 Win32 应用程序」，
+    看不出是平台选错了。
+    """
+    plat = sys.platform
+    if plat.startswith("win"):
+        keys = ("windows-x86_64",)
+    elif plat == "darwin":
+        keys = ("darwin-arm64", "darwin-x86_64") if "arm" in (os.uname().machine or "") \
+            else ("darwin-x86_64", "darwin-arm64")
+    else:
+        keys = ("linux-aarch64", "linux-x86_64") if "aarch" in (os.uname().machine or "") \
+            else ("linux-x86_64", "linux-aarch64")
+    bin_name = "ffmpeg.exe" if plat.startswith("win") else "ffmpeg"
+    for key in keys:
+        d = os.path.join(root, "vendor", "ffmpeg", key)
+        if os.path.isfile(os.path.join(d, bin_name)):
+            return d
+    return None
+
+
+def _activate_runtime_env(profile):
+    """把引擎运行期需要的东西摆好：PATH 上有平台自带的 ffmpeg。
+
+    这一层只做「摆环境」，不碰 cwd（那是 call.cwd 的事，见 _resolve_cwd）。
+    摆完把实际用了哪个目录印出来：这类东西可调且必须可见，不然出了岔子
+    只能靠猜是谁把目录挪了。
+    """
+    root = _placeholder_values(profile)["root"]
+    ffmpeg_dir = _vendored_ffmpeg_dir(root)
+    if not ffmpeg_dir:
+        return None
+    sep = ";" if os.name == "nt" else ":"
+    if ffmpeg_dir in (os.environ.get("PATH") or "").split(sep):
+        return ffmpeg_dir
+    os.environ["PATH"] = ffmpeg_dir + sep + (os.environ.get("PATH") or "")
+    return ffmpeg_dir
 
 
 def _placeholder_values(profile):
@@ -417,45 +519,28 @@ def build_cli_argv(call, profile, slots, params):
 
 
 def _resolve_cwd(profile):
-    """算出调用时该待在哪个目录（名片的 `call.cwd`）。
+    """算出调用时该待在哪个目录（名片的引擎环境目录）。
 
      上游代码里常有 `checkpoints/bpe.model` 这种相对 CWD 的硬编码，而且是
       调用实参不是默认值：显式传参救不了，chdir 是唯一不改上游源码的解法。
-     但目录名由名片说了算，不由宿主推：名片里只写名字，不写逻辑。
-      曾经想过让宿主自己推 `dirname(checkpoints)`：那是 IndexTTS2 的巧合，
-      焊进通用层就等着下一台引擎踩。推错了不报错，只是路径不对。
+     目录名由名片说了算，不由宿主推：宿主不猜 dirname(checkpoints)，
+      那种巧合焊进通用层会等着下一台引擎踩，而且推错了不报错只是路径不对。
 
-    写法两种，和 `runtime.checkpoints` 一个约定：
-      - `{engine_dir}` / `{checkpoints}` / `{root}` 槽位（最常见的是 `{engine_dir}`）
-      - 或者一条相对项目根的路径，如 `models/tts/indextts2`
-    没写 ⇒ 返回 None ⇒ 不 chdir，待在被拉起来的地方（诚实的默认值）。
+     v0.1.1 起 cwd 只有一处：registration.environment.cwd。平台读盘时把它
+      同时投影进 profile 的 call.cwd 与 runtime.cwd，两者同源；这里读 call.cwd
+      拿到的就是那一个值，不再有「两个同名不同义的 cwd」需要分辩。
+      名片里写的是相对项目根的路径（如 `engines/voxcpm`），宿主补上根；
+      绝对路径原样用。没写 ⇒ 返回 None ⇒ 不 chdir，待在被拉起来的地方。
     """
     raw = (profile.get("call") or {}).get("cwd")
     if raw is None:
         return None
     if not isinstance(raw, str) or not raw.strip():
-        raise ValueError("call.cwd 得是一条非空路径，现在是 %r" % (raw,))
-
-    values = _placeholder_values(profile)
-    missing = []
-
-    def _sub(m):
-        name = m.group(1)
-        if name not in values or values[name] is None:
-            missing.append(name)
-            return m.group(0)
-        return values[name]
-
-    expanded = _PLACEHOLDER_RE.sub(_sub, raw)
-    if missing:
-        raise ValueError(
-            "call.cwd 里的占位符 %s 填不出来（认得的是：%s）"
-            % (", ".join("{%s}" % m for m in missing),
-               ", ".join("{%s}" % k for k in sorted(values))))
-
-    if os.path.isabs(expanded):
-        return os.path.normpath(expanded)
-    return os.path.normpath(os.path.join(values["root"], expanded))
+        raise ValueError("引擎环境目录得是一条非空路径，现在是 %r" % (raw,))
+    if os.path.isabs(raw):
+        return os.path.normpath(raw)
+    root = _placeholder_values(profile)["root"]
+    return os.path.normpath(os.path.join(root, raw))
 
 
 SEEDERS = {
@@ -591,11 +676,11 @@ class Engine(object):
             # 只验第一个词能不能找到，这是「装没装对」最早能喊出来的时刻。
             if os.path.isabs(exe) and not os.path.exists(exe):
                 raise RuntimeError("call.argv 第一个词指向的可执行文件不存在：%s" % exe)
-            sys.stderr.write("%s cli: %s\n" % (BANNER, " ".join(argv)))
+            _status("%s cli: %s\n" % (BANNER, " ".join(argv)))
             self.load_seconds = round(time.time() - t0, 2)
             self.ready = True
-            sys.stderr.write("%s ready (cli, per-request process, device=%s)\n"
-                             % (BANNER, self.device))
+            _status("%s ready (cli, per-request process, device=%s)\n"
+                    % (BANNER, self.device))
         except Exception:
             self.error = traceback.format_exc()
             self.load_seconds = round(time.time() - t0, 2)
@@ -611,18 +696,18 @@ class Engine(object):
 
             # 留个证据：装的到底是哪一份源码。搬家/装包出错时这一行最值钱。
             root_mod = sys.modules.get(module_name.split(".")[0])
-            sys.stderr.write("%s %s.__file__ = %s\n" % (
+            _status("%s %s.__file__ = %s\n" % (
                 BANNER, module_name.split(".")[0],
                 getattr(root_mod, "__file__", "?")))
 
             init_args = _expand_init_args(self.call.get("init_args"), self.profile)
-            sys.stderr.write("%s constructing %s(%s)\n" % (
+            _status("%s constructing %s(%s)\n" % (
                 BANNER, class_name, ", ".join(sorted(init_args))))
             self.obj = klass(**init_args)
             self.load_seconds = round(time.time() - t0, 2)
             self.ready = True
-            sys.stderr.write("%s ready in %ss on %s\n"
-                             % (BANNER, self.load_seconds, self.device))
+            _status("%s ready in %ss on %s\n"
+                    % (BANNER, self.load_seconds, self.device))
         except Exception:
             self.error = traceback.format_exc()
             self.load_seconds = round(time.time() - t0, 2)
@@ -680,35 +765,80 @@ class Engine(object):
                 params)
 
             t0 = time.time()
-            proc = subprocess.run(
+            payload = stdin_payload(self.call, text)
+            proc = subprocess.Popen(
                 argv, cwd=_resolve_cwd(self.profile),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                input=stdin_payload(self.call, text))
+                stdin=subprocess.PIPE if payload is not None else None)
+            # 边跑边把子进程的话转给本进程的 stderr：上游宿主（平台的、向导的）
+            #   都在收这一路，于是界面可以边跑边看，而不是等几十秒后只拿到一句结论。
+            #   只在被要求时转发：正常合成的日志量不该因为这条通道变多。
+            relay = os.environ.get("AURIVOX_STREAM_ENGINE_OUTPUT") == "1"
+            out_chunks, err_chunks = [], []
+
+            def _pump(stream, chunks, sink):
+                for raw in iter(stream.readline, b""):
+                    chunks.append(raw)
+                    if relay:
+                        try:
+                            # 原路转发：stdout 保持 stdout。合成一路的话，界面只能把
+                            #   引擎的正常输出也当成 stderr 染红，读的人分不出哪句是异常。
+                            sink.write(_decode_text(raw)[0])
+                            sink.flush()
+                        except (OSError, ValueError):
+                            pass
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+            readers = [
+                threading.Thread(target=_pump, args=(proc.stdout, out_chunks, sys.stdout), daemon=True),
+                threading.Thread(target=_pump, args=(proc.stderr, err_chunks, sys.stderr), daemon=True),
+            ]
+            for th in readers:
+                th.start()
+            if payload is not None:
+                try:
+                    proc.stdin.write(
+                        payload if isinstance(payload, (bytes, bytearray))
+                        else str(payload).encode("utf-8"))
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            proc.wait()
+            for th in readers:
+                th.join(timeout=10)
+            stdout_bytes = b"".join(out_chunks)
+            stderr_bytes = b"".join(err_chunks)
+            returncode = proc.returncode
             elapsed = time.time() - t0
 
-            tail = (proc.stderr or b"").decode("utf-8", "replace").strip()
-            if proc.returncode != 0:
+            # 引擎的 stderr 可能是 GBK（Windows 上的默认代码页）：
+            #   硬按 UTF-8 + replace 会把中文报错整段换成方块，比原文更难查。
+            tail = _decode_text(stderr_bytes)[0].strip()
+            if returncode != 0:
                 # 照抄子进程说的话。自己重写一遍错误信息 = 把最值钱的
                 # 那几行冲掉，剩下一句「合成失败」。
                 raise RuntimeError(
-                    "%s 退出码 %d\n--- stderr（末尾 4000 字）---\n%s"
-                    % (os.path.basename(argv[0]), proc.returncode, tail[-4000:]))
+                    "%s 退出码 %d%s"
+                    % (os.path.basename(argv[0]), returncode, _stderr_tail_note(tail)))
 
             if returns == "file":
                 with open(out_path, "rb") as fh:
                     data = fh.read()
                 if not data:
                     raise RuntimeError(
-                        "命令退出码 0，却没往 %s 写出任何字节\n"
-                        "--- stderr（末尾 4000 字）---\n%s" % (out_path, tail[-4000:]))
+                        "命令退出码 0，却没往 %s 写出任何字节%s"
+                        % (out_path, _stderr_tail_note(tail)))
             elif returns == "dir":
                 data = _pick_audio_in_dir(out_dir, os.path.basename(argv[0]))
             else:
-                data = proc.stdout or b""
+                data = stdout_bytes
                 if not data:
                     raise RuntimeError(
-                        'call.returns 写的是 "bytes"，但命令的 stdout 是空的\n'
-                        "--- stderr（末尾 4000 字）---\n%s" % tail[-4000:])
+                        'call.returns 写的是 "bytes"，但命令的 stdout 是空的%s'
+                        % _stderr_tail_note(tail))
 
             meta = _wav_meta(data)
             meta["seed_applied"] = (
@@ -1175,7 +1305,7 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 eng.busy = False
 
-        sys.stderr.write("%s served bytes=%s sr=%s dur=%ss infer=%ss rtf=%s seed=%s\n" % (
+        _status("%s served bytes=%s sr=%s dur=%ss infer=%ss rtf=%s seed=%s\n" % (
             BANNER, meta.get("bytes"), meta.get("sample_rate"), meta.get("duration"),
             meta.get("infer_seconds"), meta.get("rtf"), meta.get("seed_applied")))
 
@@ -1627,8 +1757,8 @@ def main():
     # 上游代码里常有 `checkpoints/xxx` 这种相对 CWD 的硬编码，而且是
     # 调用实参不是默认值：显式传参救不了。chdir 是唯一不改上游源码
     # 的解法。 只在这里定一次，之后进程不再改。
-    # 读的是 call.cwd，不是 runtime.cwd。runtime.cwd 是「启动器从哪儿 spawn」，消费者是 launchPlan.js / start.ps1；
-    # 同名不同义，混用会静默 chdir 到项目根，然后上游找不到 checkpoints/。
+    # v0.1.1 起 cwd 只有一处（名片的引擎环境目录），平台把它投影进
+    # profile 的 call.cwd；host 直接读它，不再有启动目录/调用目录两种口径。
     try:
         cwd = _resolve_cwd(profile)
     except ValueError as exc:
@@ -1637,27 +1767,33 @@ def main():
     if cwd:
         if not os.path.isdir(cwd):
             sys.stderr.write(
-                "%s FATAL: call.cwd 指向的目录不存在：%s\n"
+                "%s FATAL: 引擎环境目录不存在：%s\n"
                 "%s        名片 %s 里写的是 %r\n"
                 % (BANNER, cwd, BANNER, profile["id"],
                    (profile.get("call") or {}).get("cwd")))
             return 2
         os.chdir(cwd)
 
-    sys.stderr.write("%s starting  engine=%s host=%s port=%s\n"
-                     % (BANNER, profile["id"], host, port))
+    _status("%s starting  engine=%s host=%s port=%s\n"
+            % (BANNER, profile["id"], host, port))
     # 印实际值 + 印它是哪来的。判据/路径这类东西「可调但必须可见」，
     # 不然出了岔子只能靠猜是谁把目录挪了。
-    sys.stderr.write("%s cwd=%s (%s)\n"
-                     % (BANNER, os.getcwd(),
-                        ("call.cwd=%r" % (profile.get("call") or {}).get("cwd"))
-                        if cwd else "名片没写 call.cwd，沿用启动目录"))
-    sys.stderr.write("%s python=%s\n" % (BANNER, sys.executable))
-    sys.stderr.write("%s sys_path+=%s\n" % (BANNER, sys_path_decl))
+    _status("%s cwd=%s (%s)\n"
+            % (BANNER, os.getcwd(),
+               ("引擎环境目录=%r" % (profile.get("call") or {}).get("cwd"))
+               if cwd else "名片没写引擎环境目录，沿用启动目录"))
+    _status("%s python=%s\n" % (BANNER, sys.executable))
+    _status("%s sys_path+=%s\n" % (BANNER, sys_path_decl))
+    # 运行期环境：PATH 上有平台自带的 ffmpeg（上游 pydub 这类只查 PATH）。
+    #   放在 chdir 之后：目录名按平台拼，与 cwd 无关，但印出来的值要能让
+    #   人对着现场核对，所以等 cwd 定下来再摆。
+    _ffmpeg_dir = _activate_runtime_env(profile)
+    _status("%s ffmpeg=%s\n"
+            % (BANNER, _ffmpeg_dir or "PATH 上没有（上游自己找不到 ffmpeg 时只警告）"))
     if _DROPPED:
-        sys.stderr.write("%s scrubbed %d alien sys.path entr%s: %s\n"
-                         % (BANNER, len(_DROPPED),
-                            "y" if len(_DROPPED) == 1 else "ies", _DROPPED))
+        _status("%s scrubbed %d alien sys.path entr%s: %s\n"
+                % (BANNER, len(_DROPPED),
+                   "y" if len(_DROPPED) == 1 else "ies", _DROPPED))
 
     # stdio：先把 stdout 收归协议，再碰上游代码（见 stdio_transport.claim_stdout）。
     #   加载在后台线程里跑，一边加载一边答 /health，晚一步收就会有上游的输出落进管道。
@@ -1674,8 +1810,8 @@ def main():
     engine = Engine(profile)
     STATE["engine"] = engine
     STATE["profile"] = profile
-    sys.stderr.write("%s seed plan = %s %s\n"
-                     % (BANNER, engine.seed_plan.mode, engine.seed_plan.rngs or ""))
+    _status("%s seed plan = %s %s\n"
+            % (BANNER, engine.seed_plan.mode, engine.seed_plan.rngs or ""))
 
     # 先绑端口再加载模型：这样调用方一 spawn 就能连上 /health 拿到
     # 503 + load_seconds，知道「在起，别急」。反过来那段时间里探活是
@@ -1703,7 +1839,7 @@ def main():
     try:
         httpd.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
-        sys.stderr.write("%s shutting down\n" % BANNER)
+        _status("%s shutting down\n" % BANNER)
     finally:
         httpd.server_close()
     return 0

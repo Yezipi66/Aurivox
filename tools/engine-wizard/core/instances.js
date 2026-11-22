@@ -3,6 +3,8 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+// v0.1.1：磁盘三节，读盘后投影成扁平视图（parameters[] 归当前形态那一支）。
+const { fromV011 } = require('../../../lib/engines/contract')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 // 引擎目录有两处：真 engines/ 与附加目录。
@@ -50,7 +52,7 @@ function readManifest (id) {
     const f = path.join(dir, id, 'manifest.json')
     if (!fs.existsSync(f)) continue
     try {
-      return JSON.parse(fs.readFileSync(f, 'utf-8'))
+      return fromV011(JSON.parse(fs.readFileSync(f, 'utf-8')))
     } catch {
       return null
     }

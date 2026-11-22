@@ -22,7 +22,7 @@ import {
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
   guessed, onParamDropped, onTypeConfirmed, modelFiles, entryCandidates,
-  pythonEntries, positionals, scanned, poolParams,
+  pythonEntries, positionals, scanned, poolParams, canScan, scanBusy, onScan,
 }) {
   const { t } = useT()
 
@@ -69,13 +69,15 @@ export default function ManifestForm ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelFiles, manifest && manifest.id, manifest && manifest.models && manifest.models.required])
 
-  // runtime.verify 自动填：sys_path 与 imports 两格。
+  // runtime.verify.sys_path 自动填。
   //
-  // 为什么自动填：verify 是「拿这台引擎的解释器 import 哪些模块」的第二道校验，
-  //   留空时 env_deep 没有 spec 可验，该项结果将始终为「未知」。
-  //   imports 照 call 段已定下的模块（module-only，env_probe 认的最小形状）；
-  //   sys_path 按克隆根猜（src 布局的引擎要改），猜得对不对由第 5 步 env_deep 兜底。
-  // 各自只填空格：使用者或扫描写过的（sys_path 或 imports 非空）不覆盖。
+  // 为什么自动填：src 布局的引擎要把源码目录改进 sys.path 才 import 得到，
+  //   这一格留空时 env_deep 会按默认路径去导，报错指向「模块不存在」而不是「路径没加」。
+  //   sys_path 按克隆根猜，猜得对不对由第 5 步 env_deep 兜底。
+  // 只填空格：使用者或扫描写过的（sys_path 非空）不覆盖。
+  //
+  // verify.imports 不在这里填：它是静态声明，不是推理入口的副本。
+  //   入口模块由检查侧在读取名片时现算（lib/engines/envCheck.js），不落盘。
   React.useEffect(() => {
     if (!shouldFillVerify(manifest)) return
     onChange((cur) => (shouldFillVerify(cur) ? withAutoFilledVerify(cur) : cur))
@@ -102,7 +104,8 @@ export default function ManifestForm ({
         bindSlots={spec && spec.bindSlots}
         entryCandidates={entryCandidates || []}
         pythonEntries={pythonEntries || []}
-        entryConfidence={autofill && autofill.confidence} />
+        entryConfidence={autofill && autofill.confidence}
+        canScan={canScan} scanBusy={scanBusy} onScan={onScan} />
 
       {/* ①·5 命令行词序：argv 是有序词表，位置参数只能写在这里（必填区那四格只收开关名）。 */}
       {isCli && <ArgvWords manifest={manifest} onChange={onChange} positionals={positionals || null} />}

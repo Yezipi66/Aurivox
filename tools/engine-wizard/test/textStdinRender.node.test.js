@@ -66,6 +66,8 @@ const RequiredFields = loadJsx('RequiredFields.jsx', {
     TOKEN: '{checkpoints}',
   },
   './textEntryField': loadEsm(path.join(EDITOR_DIR, 'textEntryField.js')),
+  // 形态判定与切换用真实现：这一格要按 kind 决定显示什么，stub 掉就验不到。
+  './entryChoiceField': loadEsm(path.join(EDITOR_DIR, 'entryChoiceField.js')),
 }).default
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {

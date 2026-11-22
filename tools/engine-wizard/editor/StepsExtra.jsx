@@ -3,7 +3,11 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
-import { downloadFiles, readSse, fileSlot, attachDownloadProgress } from './downloadRunner'
+import { downloadFiles, readSse, fileSlot, fileLabel, attachDownloadProgress } from './downloadRunner'
+import {
+  NOT_DOWNLOADED, DOWNLOADING, DONE, INTERRUPTED,
+  startedTask, progressTask, finishedTask, stateFromDisk, needsDownload,
+} from './downloadTask'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import Select from '../../../web/src/components/common/Select'
@@ -27,7 +31,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const sessionId = (prep && prep.res && prep.res.id) || ''
   // 已提交的全局目标是权威：会话 id 只在目标还没写下来时兜底。
   //   原来写的是 sessionId || state.id，切换引擎后 prep 那一帧还是上一台的
-  //   会话，于是这里认了旧 id，下面的 effect 又把它写回全局目标 —— 一次切换
+  //   会话，于是这里认了旧 id，下面的 effect 又把它写回全局目标，一次切换
   //   被静默回滚，而界面其它地方（含切换反馈）还停在用户选的那台。
   //   克隆完成时 StepPrepare 自己 onChange({id}) 把目标写好了，不需要这里补。
   const id = state.id || sessionId
@@ -50,7 +54,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       // 清空之前列出的仓库文件
       setManifest(null)
       setListErrors({})
-      setFileList(null)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
@@ -84,26 +87,18 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     setAskReset(false)
   }
 
-  // 下载状态（SSE 流式）。
-  // 声明必须在使用之前：下面的 useEffect 引用了 dlLive，
-  // 声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
-  //
-  // 下载活动按文件分槽记在 dlFiles 里：一个文件名对应一条。
-  //   为什么不记成一条全局的进度：同时下几个文件时，全局那条会被后到的进度盖掉，
-  //   界面上只剩最后一个文件的进度，其余几个看着像没动。
-  //   单文件下载也走这张表（只有一个条目），两处逻辑因此是同一套。
+  // 每个文件一个任务对象，四态的唯一真相。
+  // 声明必须在使用之前：下面的 useEffect 引用了这些状态，声明在后面会触发 TDZ。
   const [dlFiles, setDlFiles] = React.useState({})
   const [dlBusy, setDlBusy] = React.useState(false)
-  const [dlSummary, setDlSummary] = React.useState(null)
 
-  // 整轮下载的汇总（单文件下载时是那一个文件的结果）。
-  // dlLive 是它的旧名字，保留是为了少改调用点：内容仍是一句话的状态。
-  const dlLive = dlSummary
-
-  // 进行中的文件条目：每个文件一条进度。
-  //   同时下几个文件时，只有一条全局进度的话，界面上只剩最后一个文件的进度，
-  //   其余几个看着像没动。所以进度按文件名分槽，各占一行。
-  const dlEntries = Object.entries(dlFiles)
+  // 表格行只读这两个函数：有任务记录就认任务状态，没有才用读盘的初始态。
+  // 后端续传快照按文件名记，槽位按完整身份记。优先认槽位，快照作为回退。
+  const taskOf = (f) => dlFiles[fileSlot(f)] || dlFiles[f.name] || null
+  const viewOf = (f) => {
+    const task = taskOf(f)
+    return task ? task.state : stateFromDisk(f.status)
+  }
 
   // 取消：前端只发取消信号，真正的中断由后端做。
   //   前端自己 abort fetch 是不够的：SSE 断了不代表后端的请求停了。
@@ -120,7 +115,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   但和上游命令里的仓库是同一件事，进同一张下载清单。
   const [runtimeRepos, setRuntimeRepos] = React.useState([])
 
-  // 去重：默认按「来源 + 仓库 + 下载位置」去掉重复条目，勾选后显示全部
+  // 去重：默认按「来源 + 仓库 + 子目录」去掉重复条目，勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
 
   // 来源判不出的命令（snapshot_download 且同一段代码里看不出是哪个库）由使用者手选。
@@ -152,6 +147,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       if (saved.pastedRepos) setPastedRepos(saved.pastedRepos)
       if (saved.pastedFiles) setPastedFiles(saved.pastedFiles)
       if (saved.removedCmds) setRemovedCmds(saved.removedCmds)
+      if (saved.collapsedRepos) setCollapsedRepos(saved.collapsedRepos)
       if (saved.removedLinks) setRemovedLinks(saved.removedLinks)
       if (saved.sourceChoices) setSourceChoices(saved.sourceChoices)
     }
@@ -166,9 +162,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     load() /* eslint-disable-line */
   }, [id, state.repoUrl])
 
-  // 断点续传：页面加载时读进度文件，恢复「已下载」状态。不依赖 manifest。
-  //   同时看 active：后端Registry里还有这一轮在途文件，就把进度条接回来，
-  //   再订阅 attach 流接收后续快照。切出去时下载并未停止，回来只换一条订阅。
+  // 切页回来时，后端未完成的任务接回同一套状态：先摆出快照，再订阅后续。
   React.useEffect(() => {
     if (!id) return undefined
     let detach = null
@@ -177,42 +171,38 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       .then((r) => r.json())
       .then((j) => {
         if (!alive || !j || !j.ok) return
-        if (Array.isArray(j.done) && j.done.length > 0) {
-          setDlSummary({ stage: 'done', ok: true })
-        }
         const active = j.active || {}
-        const names = Object.keys(active)
-        if (!names.length) return
-        // 后端按文件名记快照，前端进度表按文件名作键即可：渲染只读 label 与 percent，
-        //   不依赖键的内部结构。切回来先摆出快照，attach 流再持续更新同一批键。
+        if (!Object.keys(active).length) return
         const restore = (files) => {
           if (!alive || !files) return
           setDlFiles((prev) => {
             const next = { ...prev }
             for (const [name, snap] of Object.entries(files)) {
-              next[name] = { ...(next[name] || {}), label: name,
-                percent: snap.percent, downloaded: snap.downloaded, total: snap.total }
+              next[name] = progressTask(next[name], name, snap)
             }
             return next
           })
         }
         restore(active)
         setDlBusyBoth(true)
-        setDlSummary({ stage: 'running' })
-        detach = attachDownloadProgress(id, restore, () => {
+        detach = attachDownloadProgress(id, restore, (ok) => {
           if (!alive) return
+          setDlFiles((prev) => {
+            const next = { ...prev }
+            for (const key of Object.keys(next)) {
+              if (next[key].state === DOWNLOADING) {
+                next[key] = finishedTask(next[key], next[key].label, { ok: ok !== false })
+              }
+            }
+            return next
+          })
           setDlBusyBoth(false)
-          setDlSummary({ stage: 'done', ok: true })
         })
       })
-      .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
+      .catch(() => { /* 读不到进度文件 ⇒ 没有在途任务 */ })
     return () => { alive = false; if (detach) detach() }
   }, [id])
 
-  // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
-  // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-  // 三态：已下载（文件存在且大小 > 0）/ 未下载（文件不存在）/ 不完整（大小为 0）。
-  const [fileList, setFileList] = React.useState(null)
   // 跑上游脚本：同一时刻只跑一个，输出留在界面上。
   const [scriptBusy, setScriptBusy] = React.useState(null)
   const [scriptOut, setScriptOut] = React.useState([])
@@ -267,7 +257,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       if (last && last.ok === false) {
         setEntryOut((p) => [...p, last.errorZh || last.error || `${last.code || 'FAILED'}（退出码 ${String(last.status)}）`])
       }
-      refreshFileList()
     } catch (e2) {
       const stopped = e2 && e2.name === 'AbortError'
       setEntryOut((p) => [...p, stopped ? t('Stopped.', '已停止。') : String((e2 && e2.message) || e2)])
@@ -277,31 +266,52 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     }
   }
   const stopEngineEntry = () => { if (entryAbort.current) entryAbort.current.abort() }
-  // 两个输入区各两栏：链接与下载位置。仓库页与文件直链都进同一张下载清单，
+  // 两个输入区各一栏，只填链接。仓库页与文件直链都进同一张下载清单，
   //   区别只留在条目的 kind 上，下载时由执行器分流。
+  // 手填条目落在权重根：子目录只来自上游命令的 --local-dir，不在界面上让人写。
   const [repoUrl, setRepoUrl] = React.useState('')
-  const [repoDir, setRepoDir] = React.useState('')
   const [directUrl, setDirectUrl] = React.useState('')
-  const [directDest, setDirectDest] = React.useState('')
   const [inputNote, setInputNote] = React.useState('')
   const [pastedFiles, setPastedFiles] = React.useState([])
   const [removedCmds, setRemovedCmds] = React.useState([])
+  // 仓库行的展开与收起：按仓库键记，切页回来保持原样。
+  const [collapsedRepos, setCollapsedRepos] = React.useState([])
+  // 清单表的列宽：使用者拖表头右缘决定。只存前四列，最后一列是按钮区，
+  //   宽度由按钮本身决定，拖它没有意义。
+  const [fileColWidths, setFileColWidths] = React.useState([340, 190, 104, 96])
+  const startColResize = (index, e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = fileColWidths[index]
+    // 最后一列吸收剩余宽度，这里要给它留出位置：其余列加起来不能把它挤到看不见。
+    const table = e.currentTarget.closest('table')
+    const wrapWidth = table && table.parentElement ? table.parentElement.clientWidth : 0
+    const othersWidth = fileColWidths.reduce((sum, w, i) => (i === index ? sum : sum + w), 0)
+    const maxWidth = wrapWidth > 0
+      ? Math.max(96, wrapWidth - othersWidth - 210)
+      : Number.MAX_SAFE_INTEGER
+    const onMove = (ev) => {
+      const next = Math.max(64, Math.min(maxWidth, Math.round(startWidth + (ev.clientX - startX))))
+      setFileColWidths((prev) => {
+        const copy = prev.slice()
+        copy[index] = next
+        return copy
+      })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   // 三种权重来源放在一个框里切换：前两种把文件加入清单，第三种执行引擎自己的命令。
   const [sourceTab, setSourceTab] = React.useState('engine')
-  const refreshFileList = () => {
-    if (!id) return
-    fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
-      .then((r) => r.json())
-      .then((j) => { if (j.ok) setFileList(j.files) })
-      .catch(() => { /* 读不到 ⇒ 保持原样 */ })
-  }
-  React.useEffect(() => {
-    if (!id || !dlLive || dlLive.stage !== 'done') return
-    fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
-      .then((r) => r.json())
-      .then((j) => { if (j.ok) setFileList(j.files) })
-      .catch(() => { /* 读不到 ⇒ 空列表 */ })
-  }, [id, dlLive])
 
   // 远端文件列表：用户点击「列出文件」按钮后加载。
   // 不自动加载：用户主动触发，避免不必要的网络请求。
@@ -382,7 +392,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         const why = last.errorZh || last.error || `${last.code || 'FAILED'}（退出码 ${String(last.status)}）`
         setScriptOut((prev) => [...prev, why])
       }
-      refreshFileList()
     } catch (e) {
       const stopped = e && e.name === 'AbortError'
       const text = stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)
@@ -397,31 +406,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     if (scriptAbort.current) scriptAbort.current.abort()
   }
 
-  // 下载位置是相对权重目录的路径：末段带扩展名时当文件名，前面是子目录；
-  //   不写文件名就按网址末段命名。带 .. 或绝对路径的一律拒绝，不交给后端猜。
-  const splitDest = (raw, urlVal) => {
-    const dest = String(raw || '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
-    let name = ''
-    let subdir = dest
-    if (dest) {
-      const last = dest.split('/').pop()
-      if (/\.[A-Za-z0-9]{1,8}$/.test(last)) {
-        name = last
-        subdir = dest.slice(0, dest.length - last.length).replace(/\/$/, '')
-      }
-    }
-    if (!name) {
-      try { name = decodeURIComponent(new URL(urlVal).pathname.split('/').filter(Boolean).pop() || '') }
-      catch { name = '' }
-    }
-    return { name, subdir }
+  // 文件直链的文件名只从网址末段取，落点固定在权重根。
+  //   手填子目录已移除：子目录只来自上游命令的 --local-dir（引擎真实布局）。
+  const nameFromUrl = (urlVal) => {
+    try { return decodeURIComponent(new URL(urlVal).pathname.split('/').filter(Boolean).pop() || '') }
+    catch { return '' }
   }
 
-  const badDest = (subdir) => String(subdir || '').split('/').some((x) => x === '..')
-    || /^[A-Za-z]:/.test(String(subdir || ''))
-
-  // 模型仓库区：按主域名识别 Hugging Face 与魔搭，下载位置带进清单条目，
-  //   之后列文件时由 subdir 决定这一仓库的文件落在权重目录的哪一层。
+  // 模型仓库区：按主域名识别 Hugging Face 与魔搭。手贴仓库落在权重根，
+  //   上游命令自带的 --local-dir 子目录仍由 subdirOf 解析，两者不冲突。
   const addRepo = () => {
     const link = repoLinkFromUrl(repoUrl.trim())
     if (!link) {
@@ -429,25 +422,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         '请填写 Hugging Face 或魔搭的模型仓库页。'))
       return
     }
-    const subdir = repoDir.trim().replace(/\\/g, '/').replace(/^\/+/, '')
-    if (badDest(subdir)) {
-      setInputNote(t('The destination must stay inside the weights folder.',
-        '下载位置只能在权重目录内。'))
-      return
-    }
-    setPastedRepos((prev) => prev.some((x) => x.tool === link.tool && x.repo === link.repo && x.subdir === subdir)
-      ? prev : [...prev, { ...link, subdir }])
+    setPastedRepos((prev) => prev.some((x) => x.tool === link.tool && x.repo === link.repo)
+      ? prev : [...prev, link])
     setRepoUrl('')
-    setRepoDir('')
     const site = link.tool === 'hf' ? 'Hugging Face' : '魔搭'
     const siteEn = link.tool === 'hf' ? 'Hugging Face' : 'ModelScope'
     setInputNote(t(`The ${siteEn} repo ${link.repo} was added to the download list. Use "Probe repo" above to read its files.`,
       `已识别为 ${site} 仓库 ${link.repo}，已加入下载清单；在下方清单里点「列出文件」即可读取文件列表。`))
   }
 
-  // 文件直链区：只收网址与落点，不解析整条命令。
+  // 文件直链区：只收网址，文件名从网址末段取，落点固定在权重根。
   //   平台用自己的下载器执行，重定向、断点、大小核对、落点保护与仓库文件一致。
-  const addDirect = (urlVal, destVal, sizeVal) => {
+  //   nameHint 只给 release 资产用：它的名字来自 GitHub API，比网址末段可靠；
+  //   手填直链没有尺寸信息，size 传 0。
+  const addDirect = (urlVal, sizeVal, nameHint) => {
     const raw = String(urlVal || '').trim()
     if (!raw) return
     if (repoLinkFromUrl(raw)) {
@@ -461,26 +449,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       setInputNote(t('Fill in an http(s) file URL.', '请填写 http(s) 文件地址。'))
       return
     }
-    const { name, subdir } = splitDest(destVal, raw)
+    const name = String(nameHint || '').trim() || nameFromUrl(raw)
     if (!name || /[\\/]/.test(name) || name === '.' || name === '..') {
-      setInputNote(t('The file name cannot be read from this URL. Fill in a destination with a file name.',
-        '这个链接读不出文件名，请在下载位置补一个文件名。'))
+      setInputNote(t('The file name cannot be read from this URL.',
+        '这个链接读不出文件名。'))
       return
     }
-    if (badDest(subdir)) {
-      setInputNote(t('The destination must stay inside the weights folder.',
-        '下载位置只能在权重目录内。'))
-      return
-    }
-    setPastedFiles((prev) => prev.some((x) => x.url === raw && x.name === name && x.subdir === subdir)
+    setPastedFiles((prev) => prev.some((x) => x.url === raw && x.name === name)
       ? prev : [...prev, {
-        kind: 'url', url: raw, name, subdir, size: Number(sizeVal) || 0,
+        kind: 'url', url: raw, name, subdir: '', size: Number(sizeVal) || 0,
         repo: '', tool: 'url', status: 'missing', sha256: null,
       }])
     setDirectUrl('')
-    setDirectDest('')
-    setInputNote(t('Added to the download list. Use "Download all" to fetch it.',
-      '已加入下载清单，可执行「下载全部」。'))
+    setInputNote(t('Added to the download list. Use "Download unfinished" to fetch it.',
+      '已加入下载清单，可执行「下载未完成」。'))
   }
 
   const releaseAssets = (probe && probe.release_assets) || null
@@ -490,16 +472,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     if (!id) return
     saveDownloadState(id, state.repoUrl || '', {
       manifest, dedup, pastedRepos, pastedFiles, removedCmds, removedLinks, sourceChoices,
+      collapsedRepos,
     })
   }, [id, state.repoUrl, manifest, dedup, pastedRepos, pastedFiles,
-    removedCmds, removedLinks, sourceChoices])
+    removedCmds, removedLinks, sourceChoices, collapsedRepos])
 
   const seenKeys = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
   //   来自引擎源码的仓库由下方单独一句说明，不混进「文档指路」这句话里。
   const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from)
     .filter((f) => f && f !== 'link' && f !== 'runtime'))]
-  // 仓库条目的身份：来源 + 仓库 + 下载位置。同一仓库有两个下载位置时各占一行。
+  // 仓库条目的身份：来源 + 仓库 + 子目录。同一仓库有两个子目录时各占一行。
   //   用 c.tool 而不是解析后的来源，来源选择变化不会让已移除的条目重新出现。
   const repoKeyOf = (tool, repo, subdir) => `${tool || ''}|${repo || ''}|${subdir || ''}`
   const cmdKey = (c) => repoKeyOf(c && c.tool, c && c.repo, (c && (c.subdir || subdirOf(c))) || '')
@@ -537,12 +520,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     const out = []
     for (const r of repoRows) {
       out.push(r)
-      for (const f of r.files) { out.push(f); claimed.add(f.key) }
+      for (const f of r.files) { out.push({ ...f, parentRepoKey: r.key }); claimed.add(f.key) }
     }
     for (const f of files) if (!claimed.has(f.key)) out.push(f)
     return out
   })()
   const rowKey = (f) => f.key
+  const toggleRepo = (key) => {
+    setCollapsedRepos((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]))
+  }
   const removeRow = (f) => {
     if (f.kind === 'url') {
       setPastedFiles((prev) => prev.filter((x) => !(x.url === f.url && x.name === f.name && x.subdir === f.subdir)))
@@ -588,7 +574,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     try {
       // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
       //   清单核对与落盘都要在同一层看：把那一层带给后端。
-      // 手填的下载位置直接生效；上游命令里的 --local-dir 仍按原有判据解析。
+      // 落点来自上游命令的 --local-dir；手贴仓库落在权重根。
       const sub = (c && c.subdir) || subdirOf(c)
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
@@ -657,7 +643,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     return merged
   }
 
-  // 下载全部：把没下载完的文件一次性交给执行器，它按并发上限分批派。
+  // 下载未完成：把没下完的文件一次性交给执行器，它按并发上限分批派。
   //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
   // 暂停只停前端的派单，不终止在途的请求：当前文件下载中杀进程会留下不完整的文件，
@@ -667,34 +653,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const dlPausedRef = React.useRef(false)
   const [dlPaused, setDlPaused] = React.useState(false)
 
-  // 进度按文件的完整身份分槽：同名文件来自不同仓库或不同下载位置时互不覆盖。
+  // 进度与结束都写同一个任务对象，状态只由这两个事件改变。
   const setFileProgress = (name, ev, slot, label) => {
     const key = slot || name
-    setDlFiles((prev) => ({
-      ...prev,
-      [key]: { ...(prev[key] || {}), label: label || name,
-        percent: ev.percent, downloaded: ev.downloaded, total: ev.total },
-    }))
+    setDlFiles((prev) => ({ ...prev, [key]: progressTask(prev[key], label || name, ev) }))
   }
 
-  // 某个文件结束：记下结果，成功就把这一行的状态改成「已下载」。
   const setFileDone = (name, result, slot, label) => {
     const key = slot || name
-    setDlFiles((prev) => ({
-      ...prev,
-      [key]: { ...(prev[key] || {}), label: label || name,
-        done: true, ok: result && result.ok === true, code: result && result.code,
-        noteZh: result && result.noteZh, error: result && result.error },
-    }))
+    setDlFiles((prev) => ({ ...prev, [key]: finishedTask(prev[key], label || name, result) }))
     if (result && result.ok) {
       setPastedFiles((prev) => prev.map((f) => (fileSlot(f) === key ? { ...f, status: 'ok' } : f)))
-    }
-    if (result && result.ok && id) {
-      // 下载完成后自动刷新清单（合并刷新，不整表覆盖）
-      fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
-        .then((r) => r.json())
-        .then((j) => { if (j.ok) setFileList(j.files) })
-        .catch(() => { /* 读不到 ⇒ 空列表 */ })
     }
   }
 
@@ -726,27 +695,40 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
 
   const downloadAll = () => {
     if (rows.length === 0) return
-    // 仓库文件按三态挑未完成的；直链条目由前端记完成状态，同样不重复下。
-    const filesToDownload = rows.filter((f) => (f.kind === 'url'
-      ? f.status !== 'ok'
-      : (f.kind === 'file' && (f.status === 'missing' || f.status === 'partial'))))
+    const filesToDownload = rows.filter((f) =>
+      (f.kind === 'file' || f.kind === 'url') && needsDownload(viewOf(f)))
     if (filesToDownload.length === 0) return
     startDownloads(filesToDownload)
   }
 
-  // 开一轮下载：清掉上一轮的状态再交给 runDownloads。下载全部、单文件、令牌保存后的重试都走这里。
+  // 单个仓库再下载一遍：显式覆盖，盘上已有的同名文件也重取。
+  const reDownloadRepo = (f) => {
+    if (!f || !f.files.length) return
+    startDownloads(f.files.map((x) => ({
+      ...x, overwrite: true, repo: x.repo || f.repo, tool: x.tool || f.tool,
+    })))
+  }
+
+  // 开一轮下载：先把这批文件标成正在下载，行内立刻有反馈。
+  // 不清空任务表，上一轮已经完成的文件要留着绿勾。
   const startDownloads = (files) => {
     dlBusyRef.current = true
     dlPausedRef.current = false
     dlCancelRef.current = false
     setDlPaused(false)
     setDlBusyBoth(true)
-    setDlSummary({ stage: 'start' })
-    setDlFiles({})
+    setDlFiles((prev) => {
+      const next = { ...prev }
+      for (const f of files) {
+        const slot = fileSlot(f)
+        next[slot] = startedTask(next[slot], fileLabel(f))
+      }
+      return next
+    })
     runDownloads(files)
   }
 
-  // 执行一批下载：单文件与「下载全部」共用这一条路，界面逻辑因此是同一套。
+  // 执行一批下载：单文件与「下载未完成」共用这一条路，界面逻辑因此是同一套。
   const runDownloads = (files) => {
     downloadFiles({
       id,
@@ -765,15 +747,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         const names = new Set(gated.map((x) => x.name))
         const again = files.filter((f) => names.has(f.name))
         setTokenDialog({ info: gated[0], retry: () => startDownloads(again) })
-      }
-      if (dlCancelRef.current) {
-        setDlSummary({ stage: 'cancelled' })
-      } else if (dlPausedRef.current) {
-        setDlSummary({ stage: 'paused' })
-      } else if (r.ok) {
-        setDlSummary({ stage: 'done', ok: true })
-      } else {
-        setDlSummary({ stage: 'done', ok: false, error: r.firstError, errorZh: r.firstErrorZh })
       }
     })
   }
@@ -797,44 +770,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     }).catch(() => { /* 取消信号发不出去也不影响界面状态 */ })
   }
 
-  // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据（后端），
-  // 不在这里按大小猜；判为 ok 的不会被删。
-  const removePartial = async (f) => {
-    if (!f || !f.name) return
-    try {
-      const resp = await fetch('/wizard/download/file', {
-        method: 'DELETE', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id, name: f.name,
-          size: f.size || null, sha256: f.sha256 || null, subdir: f.subdir || '',
-          root: window.__PROJECT_ROOT__ || '',
-        }),
-      })
-      const j = await resp.json()
-      // 缺信息不等于残缺：没有 sha 可比对时后端不删，如实告诉使用者
-      if (j.ok && (j.deleted || []).includes(f.name)) {
-        setFileList((list) => list.map((x) => (x.name === f.name
-          ? { ...x, status: 'missing', size: 0, sha256: null, shaVerified: false }
-          : x)))
-      } else {
-        setErr(lang === 'zh' ? (j.errorZh || j.error || '未能删除该文件。') : (j.error || 'Could not delete this file.'))
-      }
-    } catch (e) {
-      setErr(lang === 'zh' ? '删除失败，请手动删除该文件。' : 'Delete failed; remove the file manually.')
-    }
-  }
-
   // 下载是「发射后不管」的后台任务：点击后启动下载，不阻塞 UI，
   // 用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
   // 不用 await：await 会阻塞 UI，用户要等下载完成才能做其他事。
   const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
-  // 单文件下载：表格里的「下载 / 续传 / 重下」按钮走这里。
-  //   与「下载全部」共用 runDownloads，因此进度分槽、取消、收口是同一套逻辑。
+  // 单文件下载：与「下载未完成」共用 runDownloads，四态与进度因此是同一套。
   const runDownload = (c, file) => {
     if (!file || !file.name) return
-    // 直链已经下过时，这个按钮是「重新下载」：显式覆盖；首次下载不会覆盖盘上的同名文件。
-    const overwrite = file.kind === 'url' && file.status === 'ok' ? { overwrite: true } : {}
-    startDownloads([{ ...file, ...overwrite, repo: file.repo || c.repo, tool: file.tool || c.tool }])
+    // 已完成或已中断后重新取，显式覆盖，后端不会把盘上的同名文件当成别人的而跳过。
+    const view = viewOf(file)
+    const overwrite = view === DONE || view === INTERRUPTED
+    startDownloads([{ ...file, overwrite, repo: file.repo || c.repo, tool: file.tool || c.tool }])
   }
 
   // 令牌弹窗的三个动作。后端只回 { ok, configured }，令牌不回传，前端也不留副本。
@@ -894,12 +840,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       {id && (
         <div className="section" style={{ marginTop: 0 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+            <h2>
               {t('Where the weights come from', '权重来源')}
             </h2>
           </div>
           <div className="section-body">
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+            {/* 来源切换：三个按钮是互斥的选项，成组摆在上面；
+                下面的内容是「选中之后看到什么」，用一条分隔线与按钮组分开，
+                否则按钮与说明文字挤在一起，看不出哪部分是开关、哪部分是内容。 */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {[
                 { key: 'engine', zh: `引擎自带（${engineProvided}）`, en: `From the engine (${engineProvided})` },
                 { key: 'repo', zh: '模型仓库', en: 'Model repo' },
@@ -913,6 +862,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
               ))}
             </div>
 
+            <div style={{
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+            }}>
             {sourceTab === 'engine' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
@@ -986,8 +940,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'repo' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The download location is a folder inside the weights folder; added repos join the download list below, where "List files" reads their files.',
-                    '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。下载位置是权重目录内的子目录；加入后进入下方下载清单，点「列出文件」即可读取文件列表。')}
+                  {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. Added repos join the download list below, where "List files" reads their files.',
+                    '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。加入后进入下方下载清单，点「列出文件」即可读取文件列表。')}
                 </div>
                 {nothingFound && (
                   <div className="msg msg-warn" style={{ marginTop: 6 }}>
@@ -999,9 +953,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   <input className="control" style={{ flex: 1 }} value={repoUrl}
                     placeholder="https://huggingface.co/org/model"
                     onChange={(e) => setRepoUrl(e.target.value)} />
-                  <input className="control" style={{ flex: '0 0 200px' }} value={repoDir}
-                    placeholder={t('download location (optional)', '下载位置（可空）')}
-                    onChange={(e) => setRepoDir(e.target.value)} />
                   <button className="btn btn-sm btn-primary" type="button"
                     disabled={!repoUrl.trim()} onClick={addRepo}>
                     {t('Import repo', '引入仓库')}
@@ -1013,19 +964,16 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'direct' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('Paste one http(s) file URL. The download location may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. The platform fetches the file itself, with the same resume and size checks as repo files.',
-                    '填写一条 http(s) 文件地址。下载位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。平台用自己的下载器取文件，断点续传与大小核对同仓库文件一致。')}
+                  {t('Paste one http(s) file URL. The file name is taken from the last part of the URL and the file lands in the weights folder root. The platform fetches the file itself, with the same resume and size checks as repo files.',
+                    '填写一条 http(s) 文件地址。文件名取网址末段，文件放在权重根目录。平台用自己的下载器取文件，断点续传与大小核对同仓库文件一致。')}
                 </div>
                 <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input className="control" style={{ flex: 1 }} value={directUrl}
                     placeholder="https://.../model.safetensors"
                     onChange={(e) => setDirectUrl(e.target.value)} />
-                  <input className="control" style={{ flex: '0 0 200px' }} value={directDest}
-                    placeholder={t('download location (optional)', '下载位置（可空）')}
-                    onChange={(e) => setDirectDest(e.target.value)} />
                   <button className="btn btn-sm btn-primary" type="button"
                     disabled={!directUrl.trim()}
-                    onClick={() => addDirect(directUrl.trim(), directDest.trim(), 0)}>
+                    onClick={() => addDirect(directUrl.trim(), 0)}>
                     {t('Add to list', '加入清单')}
                   </button>
                 </div>
@@ -1035,6 +983,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {inputNote && (
               <div className="msg msg-info" style={{ marginTop: 6 }}>{inputNote}</div>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -1045,7 +994,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       {rows.length > 0 && (
         <div className="section">
           <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+            <h2>
               {t(`Download list (${rows.length})`, `下载清单（${rows.length}）`)}
             </h2>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1062,7 +1011,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                 disabled={dlBusy}
                 onClick={downloadAll}
               >
-                {t('Download all', '下载全部')}
+                {t('Download unfinished', '下载未完成')}
               </button>
               {/* 暂停只停前端的派单，不终止在途的请求。文案必须写清楚
                   「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
@@ -1091,7 +1040,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             </div>
           </div>
           <div className="section-body">
-            <div className="plan-kv">
+            {/* 存放位置与 HF 令牌是同一组「本步的落点与凭据」，合进同一个 .plan-kv：
+                左列由 grid 定宽，两行天然对齐；拆成两个 .plan-kv 再夹提示，左列会错位。
+                提示统一放在这两行之后，不插在中间打断对照。 */}
+            <div className="plan-kv" style={{ rowGap: 'var(--sp-8)' }}>
               <span className="pk">{t('Stored at', '存放位置')}</span>
               <span className="pv">
                 <code>engines/{id}/checkpoints/</code>
@@ -1100,39 +1052,39 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     '（名片声明了 runtime.checkpoints 时按名片）')}
                 </span>
               </span>
+              {rows.some((f) => f.tool === 'hf') && (
+                <>
+                  <span className="pk">{t('HF token', 'HF 令牌')}</span>
+                  <span className="pv">
+                    {hfConfigured === true
+                      ? t('Configured', '已配置')
+                      : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
+                    {' '}
+                    <button className="btn btn-sm" type="button"
+                      onClick={() => setTokenDialog({ info: null, retry: null })}>
+                      {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
+                    </button>
+                  </span>
+                </>
+              )}
             </div>
             {cmdsFrom.length > 0 && (
-              <div className="field-hint" style={{ marginTop: 0 }}>
+              <div className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
                 {t('These repos come from ' + cmdsFrom.join(', ') + ': the README only points there.',
                   '这些仓库来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
               </div>
             )}
             {linkCmdCount > 0 && (
-              <div className="field-hint" style={{ marginTop: 0 }}>
+              <div className="field-hint" style={{ marginTop: 'var(--sp-4)' }}>
                 {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
                   '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，列出前请移除不需要的。')}
-              </div>
-            )}
-            {rows.some((f) => f.tool === 'hf') && (
-              <div className="plan-kv">
-                <span className="pk">{t('HF token', 'HF 令牌')}</span>
-                <span className="pv">
-                  {hfConfigured === true
-                    ? t('Configured', '已配置')
-                    : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
-                  {' '}
-                  <button className="btn btn-sm" type="button"
-                    onClick={() => setTokenDialog({ info: null, retry: null })}>
-                    {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
-                  </button>
-                </span>
               </div>
             )}
             {upstreamCmds.length > 1 && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <input type="checkbox" checked={dedup}
                   onChange={(e) => setDedup(e.target.checked)} />
-                <span>{t('Deduplicate by repo and destination', '按仓库与下载位置去重')}</span>
+                <span>{t('Deduplicate by repo and subfolder', '按仓库与子目录去重')}</span>
               </label>
             )}
             {dlBusy && (
@@ -1146,32 +1098,34 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   + '暂停不会终止下载请求，因此续跑时会复用已下载的部分。')}
               </div>
             )}
-            {dlLive && dlLive.stage === 'paused' && (
-              <div className="msg msg-info">
-                {t('Paused. The remaining files are still marked as not downloaded.',
-                  '已暂停。剩余文件仍标记为未下载。')}
-              </div>
-            )}
-            {dlLive && dlLive.stage === 'cancelled' && (
-              <div className="msg msg-info">
-                {t('Cancelled. Files that finished downloading are kept; '
-                  + 'the ones that did not are marked as not downloaded.',
-                  '已取消。已下载完成的文件保留，未完成的文件标记为未下载。')}
-              </div>
-            )}
-            <table className="table">
+            {/* 表格上方一条分隔线：上面的下载状态提示与下面的文件清单是两件事，
+                状态在动、清单是结果，挨在一起看不出边界。 */}
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8 }} />
+            <div style={{ overflowX: 'auto' }}>
+              {/* 列宽固定由左侧拖拽决定：table-layout 必须是 fixed，否则浏览器会按内容
+                  重新分配宽度，拖完立刻弹回原样。最后一列不给宽度，让它吸收剩余空间。 */}
+              <table className="table wz-file-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+                {fileColWidths.map((w, i) => <col key={`col-${i}`} style={{ width: w }} />)}
+                <col />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>{t('File', '文件')}</th>
-                  <th>{t('Source', '来源')}</th>
-                  <th>{t('Size', '大小')}</th>
-                  <th>{t('SHA-256', 'SHA-256')}</th>
-                  <th>{t('Status', '状态')}</th>
+                  {[t('File', '文件'), t('Source', '来源'), t('Size', '大小'), t('Status', '状态')]
+                    .map((label, i) => (
+                      <th key={label}>
+                        {label}
+                        <span className="wz-col-resizer" role="separator" aria-orientation="vertical"
+                          title={t('Drag to resize this column', '拖动调整这一列的宽度')}
+                          onMouseDown={(e) => startColResize(i, e)} />
+                      </th>
+                    ))}
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((f) => {
+                  if (f.parentRepoKey && collapsedRepos.includes(f.parentRepoKey)) return null
                   if (f.kind === 'repo') {
                     const c = f.cmd
                     const { display, source } = buildCommand(c, sourceChoices)
@@ -1179,10 +1133,28 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     const page = repoPageUrl(f.tool, f.repo)
                     const busy = listingKeys.includes(f.cmdKey)
                     const rowError = listErrors[f.cmdKey]
+                    const collapsed = collapsedRepos.includes(rowKey(f))
                     return (
                       <React.Fragment key={rowKey(f)}>
                       <tr>
                         <td title={display}>
+                          <button className="btn btn-sm btn-ghost wz-row-toggle" type="button"
+                            aria-expanded={!collapsed}
+                            disabled={!f.files.length}
+                            title={f.files.length
+                              ? (collapsed
+                                ? t('Expand the files this repo listed', '展开这个仓库列出的文件')
+                                : t('Collapse the files this repo listed', '收起这个仓库列出的文件'))
+                              : t('No files listed yet', '尚未列出文件')}
+                            onClick={() => toggleRepo(rowKey(f))}>
+                            {collapsed ? '▸' : '▾'}
+                          </button>
+                          <button className="btn btn-sm btn-ghost wz-row-remove" type="button"
+                            aria-label={t('Remove', '移除')}
+                            title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
+                            onClick={() => removeCmd(c)}>
+                            -
+                          </button>
                           <strong>
                             {page
                               ? <a href={page} target="_blank" rel="noreferrer">{f.repo}</a>
@@ -1210,14 +1182,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                           )}
                         </td>
                         <td>
-                          {(() => {
-                            // 仓库行的大小是它已列出文件的总和；一个文件都没列时留空，
-                            //   不写「（尚无）」这类看着像取值的占位。
-                            const total = f.files.reduce((s, x) => s + (Number(x.size) || 0), 0)
-                            return total > 0 ? `${(total / 1024 / 1024).toFixed(1)} MB` : '—'
-                          })()}
+                          <span className="wz-num">
+                            {(() => {
+                              // 仓库行的大小是它已列出文件的总和；一个文件都没列时留空，
+                              //   不写「（尚无）」这类看着像取值的占位。
+                              const total = f.files.reduce((s, x) => s + (Number(x.size) || 0), 0)
+                              return total > 0 ? `${(total / 1024 / 1024).toFixed(1)} MB` : '—'
+                            })()}
+                          </span>
                         </td>
-                        <td>—</td>
                       <td>
                         {f.files.length
                           ? (
@@ -1234,15 +1207,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                             {busy ? t('Listing…', '读取中…') : t('List files', '列出文件')}
                           </button>
                           <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
-                            title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
-                            onClick={() => removeCmd(c)}>
-                            {t('Remove', '移除')}
+                            disabled={dlBusy || !f.files.length}
+                            title={t('Download every file this repo listed again, overwriting what is on disk',
+                              '把这个仓库列出的文件全部重新下载，覆盖盘上已有的文件')}
+                            onClick={() => reDownloadRepo(f)}>
+                            {t('Download all', '下载全部')}
                           </button>
                         </td>
                       </tr>
                       {rowError && (
                         <tr>
-                          <td colSpan={6} style={{ paddingTop: 0 }}>
+                          <td colSpan={5} style={{ paddingTop: 0 }}>
                             <div className="msg msg-danger" style={{ marginTop: 4 }}>{rowError}</div>
                           </td>
                         </tr>
@@ -1251,6 +1226,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     )
                   }
                   const cmd = { repo: f.repo || '', tool: f.tool || '' }
+                  const task = taskOf(f)
+                  const view = viewOf(f)
                   const page = f.kind === 'url' ? null : repoPageUrl(f.tool, f.repo)
                   let host = ''
                   if (f.kind === 'url') {
@@ -1281,46 +1258,57 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                           )}
                       </td>
                       <td>
-                        {f.size > 0
-                          ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-                          : t('(unknown)', '（未知）')}
+                        <span className="wz-num">
+                          {f.size > 0
+                            ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+                            : t('(unknown)', '（未知）')}
+                        </span>
                       </td>
                       <td>
-                        {f.sha256
-                          ? <code style={{ fontSize: 'var(--fs-11)' }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
-                          : t('(unknown)', '（未知）')}
+                        {(() => {
+                          const percent = view === DONE ? 100 : ((task && task.percent) || 0)
+                          const color = view === DONE
+                            ? 'var(--success)'
+                            : (view === INTERRUPTED ? 'var(--danger)' : 'var(--text)')
+                          const hint = view === DONE
+                            ? t('Downloaded', '下载完成')
+                            : (view === INTERRUPTED
+                              ? ((task && task.error) || t('Download interrupted', '下载中断'))
+                              : (view === DOWNLOADING
+                                ? t('Downloading', '正在下载')
+                                : t('Not downloaded', '未下载')))
+                          return (
+                            <span className="wz-num" style={{ color }} title={hint}>
+                              {percent}%
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td>
-                        {f.status === 'ok' && <span className="badge badge-ok" title={t('Done', '已完成')} />}
-                        {f.status === 'partial' && (
-                          <span title={
-                            lang === 'zh'
-                              ? (f.noteZh || '文件不完整，需要续传或重新下载。')
-                              : (f.note || 'The file is incomplete — resume or re-download it.')
-                          }>⌛</span>
-                        )}
-                        {f.status === 'missing' && <span className="badge badge-danger" title={t('Missing', '未下载')} />}
-                      </td>
-                      <td>
-                        {f.status === 'partial' && (
-                          <button className="btn btn-sm" type="button"
-                            disabled={dlBusy}
-                            onClick={() => runDownload(cmd, f)}>
-                            {t('Resume', '续传')}
-                          </button>
-                        )}
-                        {f.status === 'missing' && (
+                        {view === NOT_DOWNLOADED && (
                           <button className="btn btn-sm" type="button"
                             disabled={dlBusy}
                             onClick={() => runDownload(cmd, f)}>
                             {t('Download', '下载')}
                           </button>
                         )}
-                        {f.status === 'ok' && (
+                        {view === INTERRUPTED && (
+                          <button className="btn btn-sm" type="button"
+                            disabled={dlBusy}
+                            onClick={() => runDownload(cmd, f)}>
+                            {t('Retry', '重试')}
+                          </button>
+                        )}
+                        {view === DONE && (
                           <button className="btn btn-sm" type="button"
                             disabled={dlBusy}
                             onClick={() => runDownload(cmd, f)}>
                             {t('Re-download', '重新下载')}
+                          </button>
+                        )}
+                        {view === DOWNLOADING && (
+                          <button className="btn btn-sm" type="button" disabled>
+                            {t('Downloading…', '下载中…')}
                           </button>
                         )}
                         <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
@@ -1334,7 +1322,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   )
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1343,7 +1332,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       {runtimeHints.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+            <h2>
               {t('Fetched on first run', '运行期还会自行拉取')}
             </h2>
           </div>
@@ -1365,94 +1354,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         </div>
       )}
 
-      {/* 进度条：每个文件一条。同时下几个文件时，一条全局进度
-          会让其余几个看着像没动，所以这里按文件名分槽。 */}
-      {dlBusy && (
-        <div className="preflight" style={{ marginTop: 8 }}>
-          <div className="layer-label">
-            {dlEntries.length > 0
-              ? t(`Downloading ${dlEntries.length} file(s)…`, `正在下载 ${dlEntries.length} 个文件…`)
-              : t('Starting…', '启动中…')}
-          </div>
-          {dlEntries.length > 0
-            ? dlEntries.map(([key, p]) => {
-              const name = p.label || key
-              return (
-              <div key={key} style={{ marginTop: 6 }}>
-                <div className="field-hint" style={{ marginTop: 0 }}>
-                  {p.done
-                    ? (p.ok && p.code === 'KEPT_EXISTING'
-                      ? t(`${name} — already present, kept`, `${name}：已存在，保留未覆盖`)
-                      : (p.ok
-                        ? t(`${name} — done`, `${name}：完成`)
-                        : t(`${name} — failed: ${p.error || ''}`, `${name}：失败（${p.error || ''}）`)))
-                    : t(`Downloading ${name} (${p.percent || 0}%)`, `正在下载 ${name} (${p.percent || 0}%)`)}
-                </div>
-                {!p.done && (
-                  <div className="wz-progress">
-                    <div className="wz-progress-bar" style={{ width: `${p.percent || 0}%` }} />
-                  </div>
-                )}
-              </div>
-              )
-            })
-            : (
-              <div className="wz-progress wz-progress-indeterminate">
-                <div className="wz-progress-bar" />
-              </div>
-            )}
-        </div>
-      )}
-      {dlLive && dlLive.stage === 'done' && (
-        <div className={`msg ${dlLive.ok ? 'msg-info' : 'msg-danger'}`}>
-          {dlLive.ok
-            ? t('Download finished. Re-check to verify.', '下载完成，请重新检查确认。')
-            : t('Download failed:', '下载失败：') + ' ' + (lang === 'zh' && dlLive.errorZh ? dlLive.errorZh : (dlLive.error || ''))}
-        </div>
-      )}
-
-      {/* 逐文件校验结果：三态显示 */}
-      {fileList && fileList.length > 0 && (
-        <div className="preflight" style={{ marginTop: 8 }}>
-          <div className="layer-label">{t('Files on disk', '磁盘上的文件')}</div>
-          {fileList.map((f, i) => {
-            // 三态由后端判（大小 + 上游 sha），不在这里看大小猜：
-            // 大小对但 sha 不符的必须报不完整，只看大小会当成好的。
-            // shaVerified 为 false 时不能声称「已校验」。
-            const state = f.status === 'ok' ? 'ok' : 'partial'
-            const checked = f.shaVerified === true
-            return (
-              <div key={i} className="pf-row">
-                <span className={`badge badge-${state}`}>
-                  {state === 'ok' ? '✓' : '◐'}
-                </span>
-                <span className="pf-val"><code>{f.name}</code></span>
-                <span className="field-hint" style={{ marginTop: 0 }}>
-                  {f.size > 0
-                    ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-                    : t('(empty / partial)', '（空 / 不完整）')}
-                  {state === 'ok' && checked
-                    ? t(' (sha256 verified)', '（SHA-256 已校验）')
-                    : state === 'ok'
-                      ? t(' (sha256 not provided by the remote)', '（远端未提供 SHA-256，未校验）')
-                      : ''}
-                </span>
-                {state === 'partial' && (
-                  <button className="btn btn-sm" onClick={() => removePartial(f)}>
-                    {t('Delete partial and re-download', '删除不完整文件并重新下载')}
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
       {/* 上游附带的下载脚本（如果有）：平台按扩展名选解释器，在引擎目录里运行它。 */}
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+            <h2>
               {t('Scripts the project ships', '上游附带脚本')}
             </h2>
           </div>
@@ -1499,7 +1405,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       {releaseAssets && releaseAssets.assets.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+            <h2>
               {t('Packed in the latest release', '上游打包在最新 release 里')}
               {releaseAssets.tag ? ` · ${releaseAssets.tag}` : ''}
             </h2>
@@ -1516,7 +1422,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                 <span className="field-hint" style={{ margin: 0 }}>{sizeLabel(a.size)}</span>
                 <button className="btn btn-sm btn-primary" type="button"
                   disabled={!id}
-                  onClick={() => addDirect(a.url, a.name, a.size)}>
+                  onClick={() => addDirect(a.url, a.size, a.name)}>
                   {t('Add to list', '加入清单')}
                 </button>
               </div>
@@ -1574,14 +1480,22 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {t('Reinstall this step from the start', '从头重装本步')}
           </button>
         )}
-        {id && (
-          <div className="field-hint" style={{ flexBasis: '100%', margin: 0 }}>
-            {resetNote || t('Clears the record of finished downloads and deletes the files in the weights '
-              + 'folder, so they are fetched again.',
-              '清除本步的下载记录，并删除权重目录里的文件，下一次下载会重新取。')}
-          </div>
-        )}
       </div>
+      {/* 按钮的引注：分隔线之下，说明用「按钮名：解释」的写法，与第二步同一条规则。 */}
+      {id && (
+        <div style={{
+          paddingTop: 8,
+          borderTop: '1px solid var(--border)',
+          marginLeft: 8,
+          marginRight: 8,
+        }}>
+          <div className="field-hint" style={{ margin: 0 }}>
+            {resetNote || t('Reinstall this step from the start: clears the record of finished '
+              + 'downloads and deletes the files in the weights folder, so they are fetched again.',
+              '从头重装本步：清除本步的下载记录，并删除权重目录里的文件，下一次下载会重新取。')}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

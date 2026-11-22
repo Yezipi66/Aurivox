@@ -25,6 +25,17 @@
  *     照抄那些值，⛔ 不另立一套。
  * ============================================================================ */
 
+/* 滚动条槽位恒定保留。
+   向导的滚动落在根元素上，页面内容一跨过「要不要滚动条」的临界点，
+   滚动条就会出现或消失；它是占位的，出现时可用宽度少一条（本机约 10px），
+   居中容器跟着左移半条（约 5px）。于是第一步与第二步的「安装向导」标题、
+   流程条、卡片整体左右错开，看起来像元素没对齐，其实是视口宽度在变。
+   这里把槽位一直留着：有滚动条时不额外占位，没有滚动条时也空着那条，
+   内容高度怎么变，可用宽度都不变，居中列就不会横移。 */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* ⭐ 唯一保留的向导专有类：**页面骨架 + autofill 作用域**
  * ------------------------------------------------------------
  * ① 骨架 —— 抄 TrainingTab.jsx 那段内联纵向布局（见下）
@@ -65,6 +76,29 @@
   min-height: 0;
   width: 100%;
 }
+
+/* 第 1/2/3 步的步骤卡就是平台的一张 .section：外壳、卡片头、卡片体
+   全用现成的三件套（`section` / `section-hdr` / `section-body`），
+   这里只留两处差异，不再把 surface/border/radius 抄一份。
+   1) 卡片头里的步骤名比区块名高一级：区块头是 11px 大写小字，步骤名是 13px 正文色；
+   2) 卡片体是纵向一列、间距 12，各步骤的内容自己排。
+   不再用平台的 .node-detail：那是训练页的紫框卡片，套进向导等于两套语言。 */
+.wz-step-card {
+  margin-top: var(--sp-4);
+}
+.wz-step-title {
+  font-size: var(--fs-11);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.wz-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+}
+
 
 .wz-root input:-webkit-autofill,
 .wz-root input:-webkit-autofill:hover,
@@ -117,7 +151,7 @@
 .wz-manifest-layout {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--sp-12);
   min-width: 0;
   flex: 1;
   min-height: 0;
@@ -132,14 +166,21 @@
   align-items: stretch;
   min-height: 0;
   flex: 1;
+  /* 收起的抽屉面板靠 transform 推出视口（见 .wz-drawer-panel）。absolute
+     元素即使被推出去仍参与滚动区计算 ⇒ 页面会多出一条 360px 的假横向滚动。
+     overflow-x:clip 只裁溢出、不建滚动容器（与 hidden 不同），sticky 边条
+     与纵向滚动都不受影响；全屏面板是 fixed，也不受祖先 clip 约束。 */
+  overflow-x: clip;
   /* 左边条此刻占多宽：收着是边条宽，展开由 .wz-stage-left-open 换成抽屉宽。
      预览的 max-width 按它算，左抽屉什么时候开、视口怎么变，中栏都留得住。 */
   --wz-left-w: var(--wz-rail-w, 32px);
   /* 中栏最少留多宽，与 drawerWidth.js 的 CENTER_MIN 一致。 */
   --wz-center-min: 320px;
-  /* 左边条是浮层：这一条内边距让给它，收起时不会盖住中栏第一列。
-     展开时它盖上来，内边距不变 ⇒ 中栏宽度与开合无关。 */
-  padding-left: var(--wz-rail-w, 32px);
+  /* 骨架在文档里的起点，Stage.jsx 量出来写在这里；边条高度按它减。
+     默认 0px 是兜底：还没量到之前边条先占满一屏，量到之后自动贴合。 */
+  --wz-stage-top: 0px;
+  /* 左边条那一条由 aside 自己在 flex 行里占住，不再用内边距让：
+     内边距是「假装这里有一根柱子」，aside 是真的那一根。 */
 }
 /* 左栏开没开由 Stage.jsx 写在类名上，不用 :has()（本项目没用过，也没声明最低浏览器）。 */
 .wz-stage-left-open {
@@ -148,62 +189,81 @@
 /* 第 5 步没有左边条：右抽屉的宽度上限里左栏按 0 算，不白白留 32px。 */
 .wz-stage-no-left {
   --wz-left-w: 0px;
-  padding-left: 0;
 }
 
-/* 一根边条。收着时是一条窄边 + 一个箭头按钮，
-   展开时变宽成抽屉，内容从箭头下方流下来。
+/* 一根边条：它是 .wz-stage 这个 flex 行里的第一根（或最后一根）柱子，
+   在文档流里，和卡片一起排版、一起被滚动容器带着走。
 
-   固定在视口里：页面往下滚，边条跟着走（左边是拖拽的源，
-   右边是预览，两样都得一直在眼前）。抽屉自己内部滚动。
-   两侧都不参与 flex 行的宽度分配，中栏因此始终按整行排版。 */
+   收着时它只占 --wz-rail-w 那一条；展开的抽屉是它内部的面板，
+   绝对定位溢出到中栏之上 —— 所以中栏宽度与开合无关，也不会被推开。
+
+   sticky + top:0：页面往下滚时它自己钉住，钉的位置是它本来就在的位置，
+   不是视口顶。之前写成 position:fixed; top:0 是把它挂到浏览器视口上，
+   和页面结构无关：一开始就压在顶栏与流程条上，滚起来还跟卡片脱开。 */
 .wz-drawer {
-  position: fixed;
+  position: sticky;
   top: 0;
-  height: 100vh;
+  align-self: flex-start;
+  /* 零宽：边条不占中栏的宽度，中栏永远独占整行。
+     可见的把手与抽屉面板都用绝对定位贴在视口左右边缘（见下），
+     所以这根 aside 只是「在文档流里留一个 sticky 的定位锚点」，不占横向空间。 */
+  flex: 0 0 0;
+  width: 0;
+  height: calc(100vh - var(--wz-stage-top, 0px));
   z-index: 10;
-  flex-shrink: 0;
-  width: var(--wz-rail-w, 32px);
+}
+/* 视觉与内容都在面板里：aside 只负责「在页面里占一条」。
+
+   宽度恒定：收起与展开都保持 --wz-drawer-w，收起来靠位移把它推出视口，
+   只留边条那一条。宽度过渡会让面板每帧重新布局（里面整棵树跟着重排），
+   位移只走合成层，滑出过程不影响中栏。 */
+.wz-drawer-panel {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: var(--wz-drawer-w, 392px);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  transition: width 160ms ease;
-  overflow: hidden;
-}
-.wz-drawer.is-open {
-  width: var(--wz-drawer-w, 392px);
   align-items: stretch;
-  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  transition: transform 160ms ease;
 }
-/* 拖宽时关掉宽度动画：160ms 的过渡会让抽屉落后于鼠标，看着像拖不动。 */
-/* 左边条同样是浮层：它装的是拖拽用的参数池，展开时也不该把正在填的表单挤窄。
-   位置固定 ⇒ 中栏按「整行宽 − 边条那一条」排版，开不开抽屉都一样宽。
-   收起时只占 --wz-rail-w 那一条，由 .wz-stage 的左内边距让出来，不盖住内容。 */
-.wz-drawer-left {
+/* 左边条装的是拖拽用的参数池，展开时也不该把正在填的表单挤窄：
+   展开的面板向右溢出到中栏之上，aside 零宽不占中栏。 */
+.wz-drawer-left .wz-drawer-panel {
   left: 0;
+  /* 收起：整块左移出视口，只留把手（把手单独贴在视口左缘）。 */
+  transform: translateX(-100%);
 }
-.wz-drawer-left.is-open {
+.wz-drawer-left.is-open .wz-drawer-panel {
+  transform: translateX(0);
   /* 展开后盖在中栏之上，要自带底色，否则下面的表单透上来读不下去。 */
   background: var(--bg);
+  box-shadow: var(--shadow-soft);
 }
 
-/* 右边条不参与中栏的宽度分配：它从右边滑出，浮在中栏之上。
-   抽屉是「临时看一眼」的东西（预览、参考音频）。推开时把正在填的表单挤窄，
-   那一行会当场重排、光标位置也跟着跳；浮上来之后中栏宽度不变，只是右边缘被盖住一条。
-   位置固定 ⇒ 中栏按整行宽排版；宽度上限仍按「视口宽 − 左栏此刻宽 − 中栏最小宽」夹。 */
-.wz-drawer-right {
+/* 右边条同理：从中栏右缘向左溢出，中栏宽度不变。
+   宽度上限按「视口宽 − 左栏此刻宽 − 中栏最小宽」夹：
+   先拖到最宽再开左抽屉，预览也不会把中栏整个盖掉。 */
+.wz-drawer-right .wz-drawer-panel {
   right: 0;
+  /* 收起：整块右移出视口，只留把手（把手单独贴在视口右缘）。 */
+  transform: translateX(100%);
 }
-.wz-drawer-right.is-open {
+.wz-drawer-right.is-open .wz-drawer-panel {
+  transform: translateX(0);
   /* 浮层要自带底色：下面压着的是中栏的表单，透出来就读不下去了。 */
   background: var(--bg);
-  /* 宽度上限仍按「视口宽 − 左边条此刻宽 − 中栏最小宽」算：位置固定之后 100% 指视口，
-     先拖到最宽再开左抽屉，预览也不会把中栏整个盖掉。 */
+  box-shadow: var(--shadow-soft);
+  /* 面板绝对定位在 aside（一条 32px）里，百分比宽度会指那一条，
+     所以用视口宽算：aside 就贴在页面的左右边缘。 */
   max-width: max(var(--wz-drawer-w-narrow, 280px),
-    calc(100% - var(--wz-left-w, 32px) - var(--wz-center-min, 320px)));
+    calc(100vw - var(--wz-left-w, 32px) - var(--wz-center-min, 320px)));
+}
+.wz-drawer.is-resizing .wz-drawer-panel {
+  transition: none;
 }
 .wz-drawer.is-resizing {
-  transition: none;
   user-select: none;
 }
 /* 预览左边缘的分隔条：拖它改宽。只在右边条展开、非全屏时出现。
@@ -225,12 +285,15 @@
 /* 预览全屏：盖在整页上面，但内容受平台大容器约束（max-width 1400px 居中），
    与 9886 真实界面的渲染宽度一致，而不是贴边铺满整个视口。退出靠抽屉顶上的按钮或 Esc。 */
 .wz-drawer.is-open.is-full {
+  z-index: 100;
+}
+.wz-drawer.is-open.is-full .wz-drawer-panel {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 100;
   max-width: none;
+  transform: none;
   background: var(--bg);
   align-items: stretch;
   overflow-y: auto;
@@ -251,32 +314,48 @@
 .wz-drawer.is-open.is-full .wz-drawer-body .wz-preview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 0.5rem;
+  gap: var(--sp-8);
   align-items: start;
 }
 .wz-drawer.is-open.is-full .wz-drawer-body .wz-preview-grid > .workspace-right {
   position: sticky;
   top: 1rem;
 }
-/* 收起 / 全屏两个按钮并排在抽屉顶上。 */
-.wz-drawer-handles {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  flex-shrink: 0;
+/* 开合按钮贴在 aside 上，不跟面板滑：收起时它就是露出来的那一格，
+   展开时它就是抽屉的外上角，两处位置重合，滑动过程中它不动。 */
+.wz-drawer-toggle {
+  position: absolute;
+  top: 0;
+  width: var(--wz-rail-w, 32px);
+  height: 32px;
+  z-index: 2;
 }
-/* 展开后箭头按钮回到 32px 一格：收着时它是 width:100% + flex-shrink:0 撑满边条，
-   展开后两个按钮各要 100% 又都不许收缩 ⇒ 第二个（放大 / 全屏）被挤出抽屉右边，
-   overflow:hidden 把它藏了，看上去就是「没有全屏按钮」。 */
-.wz-drawer.is-open .wz-drawer-handle {
-  width: 32px;
+.wz-drawer-left .wz-drawer-toggle {
+  left: 0;
+}
+.wz-drawer-right .wz-drawer-toggle {
+  right: 0;
+}
+
+/* 抽屉里右上（左）角那组额外按钮（全屏）。只在展开时出现，跟着面板走。 */
+.wz-drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  height: 32px;
+}
+.wz-drawer-right .wz-drawer-actions {
+  justify-content: flex-start;
+}
+.wz-drawer-actions .wz-drawer-handle {
+  width: var(--wz-rail-w, 32px);
 }
 
 /* 边条上的箭头按钮：收着时是整根边条上唯一能点的东西。 */
 .wz-drawer-handle {
   flex-shrink: 0;
-  width: 100%;
-  min-width: 32px;
+  width: var(--wz-rail-w, 32px);
+  min-width: var(--wz-rail-w, 32px);
   padding: 8px 0;
   border: none;
   background: transparent;
@@ -302,7 +381,7 @@
 .wz-drawer-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--sp-12);
 }
 
 /* 中栏：这页的主角。撑满左右两根边条之外的宽度，
@@ -325,8 +404,9 @@
 /* 窄屏降级：抽屉窄一点。两侧都是浮层，中栏宽度不随开合变化；
    窄档抽屉不会把中栏整个盖住。 */
 @media (max-width: 960px) {
-  .wz-drawer.is-open {
-    width: var(--wz-drawer-w-narrow, 280px);
+  /* 面板宽度现在恒定，窄屏直接换掉这一档变量。 */
+  .wz-drawer {
+    --wz-drawer-w: var(--wz-drawer-w-narrow, 280px);
   }
   /* 窄屏下左抽屉是 280px ⇒ 预览上限按 280 算。 */
   .wz-stage-left-open {
@@ -644,7 +724,7 @@
 .wz-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--sp-12);
 }
 
 /* 步骤外框里也是同类堆叠：详情头 → 逃生口 → 这一步的内容。
@@ -918,4 +998,153 @@
 }
 .wz-conn-url code {
   font-size: inherit;
+}
+
+/* 第 3 步下载清单：操作列按钮不换行、同列等宽，长文件名允许断行。
+   操作列给 1% 宽度，让自动布局把它收到内容宽度，不会再挤成竖排。 */
+/* 权重清单是长表（一台引擎动辄 30 多行），平台表格的 6px 上下内边距
+   会让一屏只看得到 7 行，剩下全靠滚。向导内收到 2px：横向量不变，
+   行高从 38 降到约 26，一屏能看 12 行以上。 */
+.wz-root .wz-file-table th,
+.wz-root .wz-file-table td {
+  /* 行内上下留白：sp-2 太紧，一行行挤在一起分不出格子；
+     sp-4 与项目其他表格（.table 默认）同一档，读起来有行距。 */
+  padding-top: var(--sp-4);
+  padding-bottom: var(--sp-4);
+}
+/* 折叠块的标题行：与 .section-hdr 同一块底，左右两端摆标题与动作。
+   折叠只是它的行为，不代表它该比正文更弱。 */
+.wz-collapse-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-8);
+  cursor: pointer;
+  user-select: none;
+}
+.wz-collapse-hdr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.wz-collapse-action {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wz-file-table td:first-child {
+  word-break: break-word;
+}
+/* 最后一列不设宽度：它在固定布局里吸收剩余空间。
+   一旦给它宽度（哪怕 1%），多余宽度会按比例摊回前面几列，拖动时列宽就跟不上鼠标。 */
+.wz-file-table th:last-child,
+.wz-file-table td:last-child {
+  white-space: nowrap;
+}
+/* 大小与状态是数值类信息：数值右对齐，位数上下对齐便于比较。
+   表头却是这一列的标签，居中比贴着右边缘更像标题。 */
+.wz-root .wz-file-table th:nth-child(3),
+.wz-root .wz-file-table th:nth-child(4) {
+  text-align: center;
+}
+/* 数值列（大小、状态）：整块取中，数字在块内右对齐。
+   块宽固定，因此 0.5 MB 与 1932.7 MB 的右边缘落在同一条线上；
+   若让每个值各自居中，位数不同就会参差不齐。 */
+.wz-root .wz-file-table td:nth-child(3),
+.wz-root .wz-file-table td:nth-child(4) {
+  text-align: center;
+}
+.wz-root .wz-file-table .wz-num {
+  display: inline-block;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.wz-root .wz-file-table td:nth-child(3) .wz-num { width: 10.5ch; }
+.wz-root .wz-file-table td:nth-child(4) .wz-num { width: 4ch; }
+/* 动作贴着右缘：它是这一行最后要做的事，摆在最右比悬在中间好找。
+   错误提示那一行用 colspan 独占整行，不算动作列，不参与右对齐。 */
+.wz-root .wz-file-table th:last-child,
+.wz-root .wz-file-table td:last-child:not([colspan]) {
+  text-align: right;
+}
+.wz-file-table td:last-child .btn {
+  min-width: 72px;
+}
+/* 表头右缘的列宽拖拽条：命中区比可见线宽，鼠标容易压中；
+   可见线只在悬停时出现，静止时不额外增加竖线。 */
+.wz-root .wz-file-table th {
+  position: relative;
+}
+.wz-root .wz-file-table .wz-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.wz-root .wz-file-table .wz-col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 50%;
+  width: 1px;
+  background: transparent;
+}
+.wz-root .wz-file-table .wz-col-resizer:hover::after {
+  background: var(--accent);
+}
+/* 列宽固定后文件名不再撑开列，长路径必须能换行，否则压到相邻列上。 */
+.wz-root .wz-file-table td:first-child code {
+  overflow-wrap: anywhere;
+}
+.wz-file-table .wz-row-toggle,
+.wz-file-table .wz-row-remove {
+  min-width: 22px;
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  text-align: center;
+}
+.wz-file-table .wz-row-toggle {
+  margin-right: var(--sp-6);
+}
+
+/* 向导内的折叠统一成标题行：外框由所在区块提供，折叠本身不再套一层框。
+   参数区本来就用标题行，这里把面板级的 .collapsible 对齐到同一形态。 */
+.wz-collapse-panel {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.wz-collapse-panel > .collapsible-hdr {
+  padding: var(--sp-6) 0;
+  background: transparent;
+  font-size: var(--fs-12);
+  color: var(--muted);
+}
+.wz-collapse-panel > .collapsible-hdr:hover {
+  background: transparent;
+  color: var(--text);
+}
+.wz-collapse-panel > .collapsible-body {
+  padding: var(--sp-6) 0 0;
+  border-top: 0;
+}
+
+/* 移除按钮收成一个红色减号，宽度跟着符号走，不参与同列等宽。 */
+.wz-file-table .wz-row-remove {
+  margin-right: var(--sp-6);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.wz-file-table .wz-row-remove:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--text);
+}
+.wz-file-table td:last-child .btn:not(.wz-row-remove) {
+  min-width: 72px;
 }

@@ -1,6 +1,7 @@
 // 扫描结果转成名片建议值的纯函数：不 import react，不必为了跑一个纯函数把组件树拉起来。
 
 import { vectorShapeFromHelp } from './paramShape.js'
+import { readWeights, TOKEN as CKPT_TOKEN } from './weightsField.js'
 //
 // 输入是 /wizard/discover 返回的参数表，输出是名片的 call 段建议。
 
@@ -122,7 +123,184 @@ function judgeSlot (slot, ev, params, ambiguous, entryFile) {
   }
 }
 
-export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null, positionals = null) {
+/**
+ * python 形态下，从扫描到的类方法候选里挑一条写进名片。
+ *
+ * 为什么要有这一步：扫描回的「入口」只有 cli 那份（module + subcommand，写进 argv），
+ *   python 形态的 module / class / method 原来没有任何写入路径。使用者把调用方式切到
+ *   python 之后，argv 已被切形态那一步删掉，扫描又只认 argv，于是名片里一个入口都没有，
+ *   保存下来无法启动。
+ *
+ * 挑法：名片绑了参考音频时优先有参考音频参数的方法；同类里取评分最高的
+ *   （候选已按 score 排好，扫码器把「收文本 + 有输出/参考」的方法排在前面）。
+ * 只填空格：三格都空才写，写过任何一格都视为使用者的选择。
+ *
+ * @param {object} call 当前 call 段
+ * @param {Array} pythonEntries discover 回的 python_entries
+ * @returns {object} 新的 call 段（原对象不动）
+ */
+export function withPythonEntryFromScan (call, pythonEntries, suggested) {
+  const c = { ...(call || {}) }
+  if (c.kind !== 'python') return call
+  // 三格齐了才算有入口。只写了模块名（或只写了模块名与类名）的名片缺的不是「再造一个
+  //   入口」，而是同一入口的另外两段：按已有的模块名在候选里找，把缺的补上。
+  if (c.module && c.class && c.method) return call
+  const list = Array.isArray(pythonEntries) ? pythonEntries.filter(Boolean) : []
+  if (!list.length) return call
+  // 扫描器已经把「反射时实际用的那条入口」算出来了（它挑一条去反射拿参数表）。
+  //   写进名片时优先用同一条：两处各判一次，迟早出现「参数表来自 A、名片写的是 B」。
+  const key = (e) => `${e.module}.${e.className}.${e.method}`
+  const suggestedKey = suggested && suggested.module && suggested.class && suggested.method
+    ? `${suggested.module}.${suggested.class}.${suggested.method}`
+    : ''
+  const preset = suggestedKey ? list.find((e) => key(e) === suggestedKey) : null
+  const pool = c.module ? list.filter((e) => e.module === c.module) : list
+  if (!pool.length && !preset) return call
+  const wantsRef = !!(c.bind && c.bind.ref_audio)
+  const hasRef = (e) => Array.isArray(e.params && e.params.ref) && e.params.ref.length > 0
+  // 名片还绑了参考文本时，优先收参考文本的那个方法：参考文本不是参数分类里的独立一类，
+  //   只能从完整参数名里认。同一台引擎上 zero_shot 收 prompt_text、cross_lingual 不收，
+  //   其它条件（收文本 + 收参考音频）完全一样，只按分数挑会挑到错的那个。
+  const wantsRefText = !!(c.bind && c.bind.ref_text)
+  const hasRefText = (e) => Array.isArray(e.names) &&
+    e.names.some((n) => /^(?:prompt|ref|reference)[-_]?text$/i.test(String(n)))
+  const pick = preset || (wantsRefText && pool.find((e) => hasRef(e) && hasRefText(e))) ||
+    (wantsRef && pool.find(hasRef)) ||
+    pool[0]
+  if (!pick || !pick.module || !pick.className || !pick.method) return call
+  c.module = pick.module
+  c.class = pick.className
+  c.method = pick.method
+  // 生成器方法不收输出路径：返回方式只能是 generator，bind 里的输出槽位要摘掉。
+  //   不摘的话宿主会把 output_path 当关键字参数传给一个不接受它的方法，
+  //   报的是 TypeError，看不出是返回方式选错了。
+  const outParams = Array.isArray(pick.params && pick.params.out) ? pick.params.out : []
+  if (pick.generator === true && !outParams.length) {
+    c.returns = 'generator'
+    if (c.bind && typeof c.bind === 'object') {
+      const nb = { ...c.bind }
+      delete nb.output_path
+      c.bind = nb
+    }
+  }
+  return c
+}
+
+// 「像模型路径」的构造参数名。只用来给一个默认值，界面照常可改。
+const WEIGHT_NAME_RE = /^(model|ckpt|checkpoint)(_?(dir|path|root))?$/i
+
+/** 从「相对 checkpoints 的文件清单」推出模型子目录：各文件目录的最长公共前缀。 */
+function commonModelDir (files) {
+  const dirs = (Array.isArray(files) ? files : [])
+    .map((f) => String(f).replace(/\\/g, '/').split('/').slice(0, -1))
+    .filter((segs) => segs.length)
+  if (!dirs.length) return ''
+  let common = dirs[0]
+  for (const d of dirs.slice(1)) {
+    let i = 0
+    while (i < common.length && i < d.length && common[i] === d[i]) i += 1
+    common = common.slice(0, i)
+    if (!common.length) break
+  }
+  return common.join('/')
+}
+
+/**
+ * python 形态下补上「模型权重」那一格：构造参数名 + 带 {checkpoints} 的值。
+ *
+ * 为什么能自动：第 3 步的权重落点由平台定（core/checkpointsPath.js），
+ *   models.required 又是按盘上真实文件生成的，所以模型子目录可以从文件清单的
+ *   最长公共前缀推出来。多数引擎把同一套权重收在一个子目录里
+ *   （如 pretrained_models/<模型名>），推出来就是它对 model_dir 的期望值。
+ *
+ * 参数名从扫描到的参数里挑一个像模型路径的；挑不到就留空，让人自己填。
+ * 只填空格：已经声明过带 {checkpoints} 的构造参数、或写了 weights="self"，一律不动。
+ *
+ * @param {object} call 当前 call 段
+ * @param {string[]} files 相对 checkpoints 的文件清单（install-state 的 model_files）
+ * @param {Array} params 扫描到的参数
+ * @returns {object} 新的 call 段（原对象不动）
+ */
+export function withPythonWeightsFromScan (call, files, params) {
+  const c = { ...(call || {}) }
+  if (c.kind !== 'python') return call
+  if (c.weights === 'self') return call
+  const cur = readWeights(c)
+  if (cur.name || cur.self) return call
+  const hit = (Array.isArray(params) ? params : [])
+    .map((p) => String((p && (p.name || p.target)) || '').replace(/^-+/, '').replace(/-/g, '_'))
+    .find((n) => n && WEIGHT_NAME_RE.test(n))
+  if (!hit) return call
+  const sub = commonModelDir(files)
+  const init = { ...((c.init_args && typeof c.init_args === 'object') ? c.init_args : {}) }
+  init[hit] = sub ? `${CKPT_TOKEN}/${sub}` : CKPT_TOKEN
+  c.init_args = init
+  return c
+}
+
+// ---- python 形态的填入 ----
+//
+// 与 cli 的填入是两条路：cli 填命令行开关与 argv 词序，python 填方法参数名与构造参数。
+//   共用一个函数时每一段都要按形态分支，分支越多越容易漏（真实的漏：`call.args` 被写进
+//   python 名片、`returns` 按输出参数推成 dir）。这里只做 python 该做的事。
+
+const PY_TEXT_NAMES = ['text', 'tts_text', 'input_text', 'gen_text', 'target_text']
+const PY_REF_NAMES = ['prompt_wav', 'ref_audio', 'reference_audio', 'ref_wav', 'speaker_wav']
+const PY_REF_TEXT_NAMES = ['prompt_text', 'ref_text', 'reference_text']
+
+/**
+ * python 形态的自动填：入口（含返回方式）+ 绑定（方法参数名）+ 构造参数（权重）。
+ *
+ * @param {Array} params 扫描到的参数（后端已按 kind 过滤，只有 python 来源）
+ * @param {object} currentCall 当前 call 段
+ * @param {Array} pythonEntries 类方法候选
+ * @param {object|null} suggested 扫描器实际用来反射的那条入口
+ * @param {string[]} files 相对 checkpoints 的文件清单
+ * @returns {{call: object, notes: Array, confidence: object}}
+ */
+export function computePythonFill (params, currentCall, pythonEntries, suggested, files) {
+  const list = Array.isArray(params) ? params : []
+  const notes = []
+  const confidence = { bind: {}, returns: null, weights: null, entry: null }
+
+  // 入口：三格齐了就保留，缺哪格补哪格。
+  let next = withPythonEntryFromScan({ ...(currentCall || {}), kind: 'python' },
+    pythonEntries, suggested)
+
+  // 返回方式按方法本身定：方法体里有 yield 且不收输出路径 ⇒ generator。
+  //   cli 那边按「有没有输出参数」推，这里不能沿用：生成器方法恰恰不收输出路径。
+  const candidates = Array.isArray(pythonEntries) ? pythonEntries : []
+  const match = candidates.find((e) => e && e.module === next.module &&
+    e.className === next.class && e.method === next.method)
+  const outParams = Array.isArray(match && match.params && match.params.out) ? match.params.out : []
+  if (match && match.generator === true && !outParams.length) {
+    next = { ...next, returns: 'generator' }
+    if (next.bind && next.bind.output_path) {
+      const b = { ...next.bind }
+      delete b.output_path
+      next = { ...next, bind: b }
+    }
+  }
+
+  // 绑定：python 参数的 target 与 name 同名，写哪个都是方法参数名。只填空格。
+  const bind = { ...(next.bind || {}) }
+  const pick = (names) => list.find((p) => names.includes(normName(p.name)))
+  const fill = (slot, names) => {
+    if (bind[slot]) return
+    const hit = pick(names)
+    if (hit) bind[slot] = hit.name
+  }
+  fill('text', PY_TEXT_NAMES)
+  fill('ref_audio', PY_REF_NAMES)
+  fill('ref_text', PY_REF_TEXT_NAMES)
+  if (Object.keys(bind).length) next = { ...next, bind }
+
+  // 构造参数：权重按盘上文件清单推。
+  next = withPythonWeightsFromScan(next, files, list)
+  return { call: next, notes, confidence }
+}
+
+export function computeCliFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null, positionals = null) {
   // 只有位置参数的引擎（命令行上一个开关都没有）以前在这里被整段丢掉：
   //   扫到的是空参数表，界面只报「没有发现参数」，而真因是它把值写在词序上。
   const posList = Array.isArray(positionals) ? positionals : []
@@ -137,24 +315,43 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   //   只记结论与依据，不改写上面任何一段填值逻辑；界面据此标注，不据此取舍。
   const confidence = { bind: {}, returns: null, weights: null, entry: null }
 
-  // kind 由名片说了算，只在只有一条来源时才改它。
-  //   探测是同时扫两条路、再把结果合并成一张表的：表里混着两种来源，
-  //   「有 cli 参数就置 cli」于是对一张混合表恒真，python 名片被改写成 cli 形态之后，
-  //   它的参数名不再是带横线的开关，存下去当场被拒。
+  // kind 由名片说了算：名片已经声明过形态时，扫描一律不改写。
+  //   探测是同时扫两条路、再把结果合并成一张表的。从前「只有 cli 来源就置 cli」，
+  //   于是一张 python 名片被改写成 cli，而 bind 里仍是方法参数名（tts_text 而非
+  //   --tts-text），宿主解析时当场拒绝：kind="cli" 下 call.bind.text 要的是开关。
+  //   扫描只提供参数候选，形态是使用者的声明；不一致时给提示，让他自己切。
   const hasCli = params.some((p) => p.source === 'cli')
   const hasPy = params.some((p) => p.source === 'python')
+  const declaredKind = call.kind === 'cli' || call.kind === 'python' ? call.kind : null
+
+  // 两种来源混在一张表里时，无论名片写没写形态，都要报出来：
+  //   平台没有依据替使用者挑一条路。
   if (hasCli && hasPy) {
     notes.push({
       en: 'Both command line flags and Python signature parameters were found. The manifest kind was left as it is: confirm whether this engine runs through the command line or through the Python class.',
       zh: '同时发现了命令行开关和 Python 函数签名参数。名片里的 kind 保持原样：请确认这台引擎走命令行还是走 Python 类。',
     })
-  } else if (hasCli) {
-    call.kind = 'cli'
-  } else if (hasPy) {
-    call.kind = 'python'
-  } else if (posList.length) {
-    // 位置参数只存在于命令行形态：这一条本身就是 cli 的证据。
-    call.kind = 'cli'
+  }
+
+  if (!declaredKind) {
+    // 名片还没声明形态：只有一条来源时按它定。
+    if (hasCli && !hasPy) call.kind = 'cli'
+    else if (hasPy && !hasCli) call.kind = 'python'
+    else if (!hasCli && !hasPy && posList.length) {
+      // 位置参数只存在于命令行形态：这一条本身就是 cli 的证据。
+      call.kind = 'cli'
+    }
+  } else if (declaredKind === 'cli' && hasPy && !hasCli) {
+    // 只提示，不改写：两种形态的绑定名写法不同，改一半就会造出一张自相矛盾的名片。
+    notes.push({
+      en: 'The scan found Python signature parameters, but the manifest declares the command-line mode. The binding names differ between the two modes; check them or switch the call mode.',
+      zh: '扫描到的是 Python 函数签名参数，而名片声明的是命令行形态。两种形态的绑定名写法不同，请核对绑定名或切换调用方式。',
+    })
+  } else if (declaredKind === 'python' && hasCli && !hasPy) {
+    notes.push({
+      en: 'The scan found command-line flags, but the manifest declares the Python class mode. The binding names differ between the two modes; check them or switch the call mode.',
+      zh: '扫描到的是命令行开关，而名片声明的是 Python 类形态。两种形态的绑定名写法不同，请核对绑定名或切换调用方式。',
+    })
   }
 
   // args 与 argv 是 cli 形态才有的两段，python 名片里写它，存的时候直接被拒。

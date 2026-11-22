@@ -11,12 +11,12 @@
     第一道  装没装：解释器 / 入口 / sys_path 在不在（纯查盘）
     第二道  起得来：拿引擎自己的解释器 import 名片点名的模块/类/方法
 
-��两道都过了，仍然完全可能出一堆不能听的���音：
+前两道都过了，仍然完全可能出一堆不能听的声音：
 
-    · 上���类能 import，但它要的那份权重不在（第二道不查权重）
+    · 上游类能 import，但它要的那份权重不在（第二道不查权重）
     · 权重在，但配置写错、码本不匹配
     · 构造成功，infer 跑一半抛异常
-    · 出来了��但是空的（0 字节 / 0 帧）
+    · 出来了，但是空的（0 字节 / 0 帧）
     · 采样率是 0 / 声道数荒诞：能播，但没法用
 
 ⇒ 「import 成功」与「出得了声」之间隔着一整层，只有真跑一次才知道。
@@ -33,7 +33,7 @@
 
 两级都必须能单独跑：A 过了不代表 B 过了（B 是更前面的那道），
    B 过了也不代表 A 过了（B 只到「谈得拢」为止）。
-   合���成「跑一次 A 就等于全都验过了」：那正是本页开头描述的失败模式。
+   合并成「跑一次 A 就等于全都验过了」：那正是本页开头描述的失败模式。
 
 # ------------------------------------------------------------------
 本文件不许 import 名片没点名的东西
@@ -60,6 +60,7 @@ import os
 import struct
 import sys
 import threading
+import time
 import traceback
 import wave
 
@@ -67,6 +68,32 @@ import wave
 #    就多一处「本机上装没装」的变量：而那正是本文件要验的东西之外的事。
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+
+def _decode_text(raw):
+    """字节 → 文本：UTF-8 优先，GBK 兜底。
+
+    引擎是别人写的，在 Windows 上可能直接吐 GBK 的中文报错。硬按
+    UTF-8 + replace 会把汉字整段换成方块，比原文更难查；硬按 GBK 解
+    UTF-8 也一样糟。所以先严格 UTF-8，再严格 cp936，都不成才替换，
+    并在调用方那侧说明「这串字不是原文」。
+    """
+    for enc in ("utf-8", "cp936"):
+        try:
+            return raw.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace"), None
+
+
+
+
+# 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp936），
+#   而这里要吐中文（错误原文、建议、模块名都可能是中文）⇒ 编码不上就
+#   UnicodeEncodeError，脚本以非零码死掉，调用方会把它读成「探针自己崩了」，
+#   而不是「这台引擎没过」。调用方按 utf-8 解码，这边就得按 utf-8 编码；
+#   不依赖调用方传没传 PYTHONIOENCODING。
+sys.stdout.reconfigure(encoding='utf-8')
 
 BANNER = "[verify-audio]"
 
@@ -150,7 +177,7 @@ def http_json(url, payload=None, timeout=30, method=None):
         with urlopen(req, timeout=timeout) as resp:
             body = resp.read()
             ctype = resp.headers.get("Content-Type") or ""
-            # 二进制响应（audio/wav）原样带回，不许试�� JSON 化，
+            # 二进制响应（audio/wav）原样带回，不许试图 JSON 化，
             #   试了也只会得到一句「响应不是 JSON」，而真相是「它压根不是 JSON」。
             if ctype.startswith("audio/") or not ctype.startswith("application/json"):
                 return resp.getcode(), None, None, body, ctype
@@ -167,7 +194,8 @@ def http_json(url, payload=None, timeout=30, method=None):
         try:
             return exc.code, json.loads(raw.decode("utf-8")), None, None, ""
         except Exception:
-            return exc.code, None, "HTTP %d，body=%r" % (exc.code, raw[:200]), None, ""
+            body_text = _decode_text(raw[:400])[0]
+            return exc.code, None, "HTTP %d，body=%s" % (exc.code, body_text), None, ""
     except URLError as exc:
         return None, None, "连不上 %s：%s" % (url, exc), None, ""
     except Exception as exc:
@@ -203,6 +231,15 @@ def _readable_detail(body, raw=None, limit=DETAIL_LIMIT):
     直接 json.dumps 出来会把换行转义成 \\n，读的人要自己还原；
     只取前若干字又会把最后一行异常切掉。所以结构化字段原样取出。
     """
+    # http_json 偶尔拿不到 dict：响应体不是合法 UTF-8 JSON 时只留下原始字节。
+    #   那种情况原本会把整段 JSON 文本当原文显示，读的人看到的是一串
+    #   \r\n 与双反斜杠。先自己解一次，能解就照结构化字段取。
+    if body is None and raw:
+        try:
+            body = json.loads(_decode_text(raw)[0])
+        except (ValueError, UnicodeDecodeError):
+            body = None
+
     if isinstance(body, dict):
         parts = []
         for key in DETAIL_KEYS:
@@ -219,7 +256,10 @@ def _readable_detail(body, raw=None, limit=DETAIL_LIMIT):
     elif isinstance(body, str):
         text = body
     elif raw:
-        text = raw.decode("utf-8", "replace")
+        # 引擎的原文可能是 GBK：UTF-8 优先、GBK 兜底，都不成才替换显示。
+        text, enc = _decode_text(raw)
+        if enc is None:
+            text += "\n（这段字节既不是 UTF-8 也不是 GBK，上面是替换后的显示，不是原文）"
     else:
         text = ""
     return _clip(text.strip(), limit)
@@ -245,9 +285,14 @@ def verify_level_b(spec):
                  timeout=spec.get("ready_timeout", 30))
     if err:
         return {"ok": False, "level": "B", "stage": "health",
-                "error": "打不通 /health", "detail": err, "steps": out["steps"],
-                "cause": "宿主没有在这个地址上监听",
-                "hint": "确认宿主进程仍在运行；它若已经退出，退出原因在下方原文里"}
+                "error": "Cannot reach /health",
+                "errorZh": "打不通 /health",
+                "detail": err, "steps": out["steps"],
+                "cause": "Nothing is listening on this address",
+                "causeZh": "宿主没有在这个地址上监听",
+                "hint": "Check that the host process is still running; if it has exited, "
+                        "the reason is in the raw output below.",
+                "hintZh": "确认宿主进程仍在运行；它若已经退出，退出原因在下方原文里"}
     if status != 200:
         # 503 = 还在加载 / 加载失败。failed=true 时要单独说，
         # 那不是「再等等」，是「等下去也不会好」（host.py 自己就这么讲）。
@@ -255,16 +300,20 @@ def verify_level_b(spec):
             # 根因交给上层按原文判（lib/engines/diagnose.js 是唯一一份口径）：
             #   探针只管把宿主说的话原样取出来。
             return {"ok": False, "level": "B", "stage": "health", "status": status,
-                    "error": "宿主报加载失败，等下去也不会好",
+                    "error": "The host reported a load failure; waiting will not help",
+                    "errorZh": "宿主报加载失败，等下去也不会好",
                     "detail": _readable_detail(body),
                     "steps": out["steps"]}
         return {"ok": False, "level": "B", "stage": "health", "status": status,
-                "error": "/health 返回 %d" % status, "body": body,
+                "error": "/health returned %d" % status,
+                "errorZh": "/health 返回 %d" % status,
+                "body": body,
                 "detail": _readable_detail(body),
                 "steps": out["steps"]}
     if not isinstance(body, dict) or not body.get("ready"):
         return {"ok": False, "level": "B", "stage": "health",
-                "error": "/health 说 ready=%r" % (body or {}).get("ready"),
+                "error": "/health reported ready=%r" % (body or {}).get("ready"),
+                "errorZh": "/health 说 ready=%r" % (body or {}).get("ready"),
                 "steps": out["steps"]}
     out["steps"].append({"step": "health", "ok": True,
                          "call_kind": body.get("call_kind"),
@@ -272,8 +321,10 @@ def verify_level_b(spec):
                          "device": body.get("device")})
     # 诚实地记下来：cli 形态压根不常驻，B 级对它天然更弱。
     if body.get("resident") is False:
-        out["note"] = ("这台引擎是 cli 形态（每次请求起新进程），"
-                       "resident=false：B 级对它只能验到契约，验不到常驻")
+        out["note"] = ("This engine is a cli form: a new process per request, resident=false. "
+                       "Tier B can verify the contract only, not the resident path.")
+        out["noteZh"] = ("这台引擎是 cli 形态（每次请求起新进程），"
+                         "resident=false：B 级对它只能验到契约，验不到常驻")
 
     # --- 2. 契约：故意发一个缺 text 的请求 ---
     # 期望 400 且点名 text。收到 200 = 宿主没在验（那是更糟的静默）。
@@ -282,29 +333,48 @@ def verify_level_b(spec):
     for k, v in (spec.get("minimal_request") or {}).items():
         empty[k] = v
     empty.pop("text", None)              # 故意去掉
+    t_sent = time.time()
     status, body, err, raw, ctype = http_json(base + "/tts", payload=empty, timeout=30)
+    waited = round(time.time() - t_sent, 1)
     if err:
         return {"ok": False, "level": "B", "stage": "contract",
-                "error": "打不通 /tts", "detail": err, "steps": out["steps"],
-                "cause": "请求没有到达宿主",
-                "hint": "确认宿主还在运行；只有 /health 通而 /tts 不通时，通常是路由或端口被别的进程占了"}
+                "error": "Cannot reach /tts",
+                "errorZh": "打不通 /tts",
+                "detail": "%s（等待 %.1f 秒，本次上限 30 秒）" % (err, waited),
+                "waited_sec": waited, "timeout_sec": 30,
+                "steps": out["steps"],
+                "cause": "The request never reached the host",
+                "causeZh": "请求没有到达宿主",
+                "hint": "Check that the host is still running. When /health answers but /tts does not, "
+                        "the route or the port is usually taken over by another process.",
+                "hintZh": "确认宿主还在运行；只有 /health 通而 /tts 不通时，通常是路由或端口被别的进程占了"}
     if status != 400:
         detail = _readable_detail(body, raw)
         return {"ok": False, "level": "B", "stage": "contract",
-                "error": "缺 text 的请求应得 400，实得 %d" % status,
-                "why": "400 是宿主在验你；200/500 都说明这道闸没生效",
+                "error": "A request without text should get 400, got %d" % status,
+                "errorZh": "缺 text 的请求应得 400，实得 %d" % status,
+                "why": "400 means the host is checking you; 200/500 both mean this gate did not work",
+                "whyZh": "400 是宿主在验你；200/500 都说明这道闸没生效",
                 "body": body, "detail": detail,
-                "cause": "宿主没有拦住一个缺 text 的请求",
-                "hint": "收到 200 说明请求校验没生效，缺参数会被静默接受；"
-                        "收到 500 说明宿主在拼请求时就抛了异常，看下方原文。",
+                "cause": "The host did not reject a request that lacks text",
+                "causeZh": "宿主没有拦住一个缺 text 的请求",
+                "hint": "200 means request validation is not in effect, so missing parameters are silently accepted; "
+                        "500 means the host threw while assembling the request, see the raw output below.",
+                "hintZh": "收到 200 说明请求校验没生效，缺参数会被静默接受；"
+                          "收到 500 说明宿主在拼请求时就抛了异常，看下方原文。",
                 "steps": out["steps"]}
     msg = json.dumps(body, ensure_ascii=False) if body is not None else ""
     if "text" not in msg.lower():
         return {"ok": False, "level": "B", "stage": "contract",
-                "error": "缺 text 的 400 没有点名 text", "body": body,
+                "error": "The 400 for a missing text did not mention text",
+                "errorZh": "缺 text 的 400 没有点名 text",
+                "body": body,
                 "detail": _readable_detail(body, raw),
-                "cause": "宿主拒绝了请求，但没说缺的是 text",
-                "hint": "核对名片的请求校验与 call.bind：两者不一致时，提示的内容与真正缺的输入不是同一个。",
+                "cause": "The host rejected the request but did not say text was the missing field",
+                "causeZh": "宿主拒绝了请求，但没说缺的是 text",
+                "hint": "Check the manifest request validation against call.bind: when the two disagree, "
+                        "the message names a field other than the one really missing.",
+                "hintZh": "核对名片的请求校验与 call.bind：两者不一致时，提示的内容与真正缺的输入不是同一个。",
                 "steps": out["steps"]}
     out["steps"].append({"step": "contract", "ok": True,
                          "message": (body or {}).get("error") or msg[:120]})
@@ -344,7 +414,8 @@ def verify_level_a(spec):
     payload = dict(spec.get("request") or {})
     if not payload.get("text"):
         return {"ok": False, "level": "A", "stage": "spec",
-                "error": "spec 要给 request.text：拿什么合成？"}
+                "error": "spec must provide request.text: there is nothing to synthesise",
+                "errorZh": "spec 要给 request.text：拿什么合成？"}
 
     # 参考音频必须真的存在，不许造一个假路径，
     # 那会得到一个「文件不存在」的 400，而它长得像「校验失败」。
@@ -361,27 +432,46 @@ def verify_level_a(spec):
             # 规范化动过原文时把原样输入一并给出：常见原因就是那对引号让判定走了相对路径。
             shown = raw if raw == str(ref).strip() else "%s（原样输入：%s）" % (rp, ref)
             return {"ok": False, "level": "A", "stage": "spec",
-                    "error": "参考音频不存在：%s" % shown,
-                    "why": "平台不替你造一个假路径：那样验的是 404，不是引擎",
-                    "cause": "填写的参考音频路径在盘上找不到",
-                    "hint": "绝对路径原样使用，相对路径以项目根为准；"
-                            "找不到就核对文件名与所在目录是否与填写的一致。"}
+                    "error": "The reference audio does not exist: %s" % shown,
+                    "errorZh": "参考音频不存在：%s" % shown,
+                    "why": "The platform does not invent a fake path: that would test a 404, not the engine",
+                    "whyZh": "平台不替你造一个假路径：那样验的是 404，不是引擎",
+                    "cause": "The reference audio path you entered is not on disk",
+                    "causeZh": "填写的参考音频路径在盘上找不到",
+                    "hint": "Absolute paths are used as they are; relative paths are resolved against the "
+                            "project root. If it is still not found, check the file name and its folder.",
+                    "hintZh": "绝对路径原样使用，相对路径以项目根为准；"
+                              "找不到就核对文件名与所在目录是否与填写的一致。"}
         payload[key] = rp
 
+    synth_timeout = spec.get("synth_timeout", 180)
+    t_sent = time.time()
     status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,
-                                     timeout=spec.get("synth_timeout", 180))
+                                     timeout=synth_timeout)
+    waited = round(time.time() - t_sent, 1)
     if err:
+        # 超时类报错必须自己说明「等了多久、上限多少」：
+        #   否则界面只有一句 timed out，看的人无法判断是引擎慢、
+        #   还是超时窗口本来就被配小了，只能靠猜。
         return {"ok": False, "level": "A", "stage": "synth",
-                "error": "合成请求失败", "detail": err, "steps": out["steps"],
-                "cause": "请求没有到达宿主",
-                "hint": "确认临时宿主还在运行；端口与地址来自本次校验自己挑的空闲端口，"
-                        "连不上通常意味着宿主进程已经退出。"}
+                "error": "The synthesis request failed",
+                "errorZh": "合成请求失败",
+                "detail": "%s（等待 %.1f 秒，本次上限 %d 秒）" % (err, waited, synth_timeout),
+                "waited_sec": waited, "timeout_sec": synth_timeout,
+                "steps": out["steps"],
+                "cause": "The request never reached the host",
+                "causeZh": "请求没有到达宿主",
+                "hint": "Check that the temporary host is still running. The port and address come from "
+                        "an idle port chosen for this check; a refused connection usually means the host exited.",
+                "hintZh": "确认临时宿主还在运行；端口与地址来自本次校验自己挑的空闲端口，"
+                          "连不上通常意味着宿主进程已经退出。"}
     if status != 200:
         # 把宿主给的原文完整带出来：它已经点名了根因
         #   （unknown parameter / requires ref_audio / load_time only …）。
         #   根因判断不在这里做：那一份口径在 lib/engines/diagnose.js。
         return {"ok": False, "level": "A", "stage": "synth", "status": status,
-                "error": "宿主返回 %d" % status,
+                "error": "The host returned %d" % status,
+                "errorZh": "宿主返回 %d" % status,
                 "detail": _readable_detail(body, raw),
                 "steps": out["steps"]}
 
@@ -391,7 +481,8 @@ def verify_level_a(spec):
     audio, shape = _extract_audio(body, raw)
     if audio is None:
         return {"ok": False, "level": "A", "stage": "decode", "status": status,
-                "error": "响应里没有音频",
+                "error": "The response carries no audio",
+                "errorZh": "响应里没有音频",
                 "shape": shape,
                 "detail": _readable_detail(body, raw),
                 "steps": out["steps"]}
@@ -401,10 +492,17 @@ def verify_level_a(spec):
     out["wav"] = wav
     if not wav.get("ok"):
         return {"ok": False, "level": "A", "stage": "wav",
-                "error": "拿到了字节，但不是能播的音频", "wav": wav,
-                "cause": "响应能被读成 WAV 头，但内容不成立（%s）" % (wav.get("why") or "原因见 wav 字段"),
-                "hint": "核对名片 call.returns：产出是文件、目录还是直接写 stdout；"
-                        "写错时拿到的往往是一段日志或路径字符串，而不是音频。",
+                "error": "Bytes came back, but they are not playable audio",
+                "errorZh": "拿到了字节，但不是能播的音频",
+                "wav": wav,
+                "cause": "The response parses as a WAV header, but its content does not hold up (%s)"
+                         % (wav.get("why") or "see the wav field"),
+                "causeZh": "响应能被读成 WAV 头，但内容不成立（%s）"
+                           % (wav.get("why") or "原因见 wav 字段"),
+                "hint": "Check the manifest call.returns: does it produce a file, a directory, or stdout? "
+                        "When that is wrong, you usually get a log or a path string instead of audio.",
+                "hintZh": "核对名片 call.returns：产出是文件、目录还是直接写 stdout；"
+                          "写错时拿到的往往是一段日志或路径字符串，而不是音频。",
                 "steps": out["steps"]}
     # 把音频写成文件带出来：Player.jsx 画波形需要 src 指向可 fetch 的音频，
     #   只回报字节数的话前端拿不到音频本体，波形无数据可画。
@@ -466,11 +564,15 @@ def verify(spec):
     if not base or not isinstance(base, str):
         return {
             "ok": False, "level": level, "stage": "spec",
-            "error": "spec 没有 base_url：这台引擎不是常驻 HTTP 形态",
-            "why": ("探针只会打 HTTP。stdio / cli 形态的引擎要先由调用方"
-                    "起一个临时宿主（host.py --profile-json <解析结果> "
-                    "--port <空闲端口>），再把 http://127.0.0.1:<端口> "
-                    "作为 base_url 传进来"),
+            "error": "spec has no base_url: this engine is not a resident HTTP service",
+            "errorZh": "spec 没有 base_url：这台引擎不是常驻 HTTP 形态",
+            "why": ("The probe only speaks HTTP. For stdio / cli engines the caller must start "
+                    "a temporary host (host.py --profile-json <profile> --port <idle port>) "
+                    "and pass http://127.0.0.1:<port> in as base_url"),
+            "whyZh": ("探针只会打 HTTP。stdio / cli 形态的引擎要先由调用方"
+                      "起一个临时宿主（host.py --profile-json <解析结果> "
+                      "--port <空闲端口>），再把 http://127.0.0.1:<端口> "
+                      "作为 base_url 传进来"),
         }
     if level == "A":
         # A 级先跑 B：不是可选项：
@@ -479,7 +581,8 @@ def verify(spec):
         b = verify_level_b(spec)
         if not b.get("ok"):
             b["level"] = "A"
-            b["error"] = ("B 级没过 ⇒ 不进入 A 级：" + str(b.get("error")))
+            b["error"] = "Tier B did not pass, so tier A is skipped: " + str(b.get("error"))
+            b["errorZh"] = "B 级没过 ⇒ 不进入 A 级：" + str(b.get("errorZh") or b.get("error"))
             return b
         a = verify_level_a(spec)
         a["level_b"] = b

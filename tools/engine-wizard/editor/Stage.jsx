@@ -31,15 +31,47 @@ const DRAWER_W = '360px'
  * @param {object} open 哪边抽屉开着 {left, right}
  * @param {Function} onToggle 开合某一边的抽屉
  */
-export default function Stage ({ left, center, right, open, onToggle, full, onFull }) {
+export default function Stage ({
+  left, center, right, open = {}, onToggle = () => {}, full, onFull = () => {},
+}) {
   const { t } = useT()
-  // 第 5 步只有中栏 + 右抽屉：left 不传时不渲染左边条，右抽屉的宽度上限按左栏 0 算。
+  // 左右抽屉都是可选的：第 5 步只挂右抽屉（left=null），
+  // 第 1–3 步两张都不挂（left/right 都不传），只留中栏。
+  // 这样五步共用同一个骨架，边条是「按需挂上去的」，不是第 4 步的专属结构。
   const hasLeft = left != null
+  const hasRight = right != null
   const leftOpen = hasLeft && !!open.left
-  const rightOpen = !!open.right
+  const rightOpen = hasRight && !!open.right
 
   const stageRef = React.useRef(null)
-  const leftRef = React.useRef(null)
+
+  // 边条高度 = 视口高 − 骨架在文档里的起点。
+  //   高度取满 100vh 的话，进入时底部会超出视口（抽屉的下半部分提前被窗口裁掉），
+  //   而且 sticky 的可吸附范围只剩「骨架高 − 100vh」，第 5 步这种刚好一屏的页面
+  //   滚两下抽屉就被容器底部顶出去，把手跟着消失、收不回来。
+  //   按这个高度算，可吸附范围恰好等于整页可滚动距离，滚到底把手仍在。
+  React.useEffect(() => {
+    const el = stageRef.current
+    if (!el) return undefined
+    const apply = () => {
+      const top = Math.round(el.getBoundingClientRect().top + window.scrollY)
+      el.style.setProperty('--wz-stage-top', `${Math.max(0, top)}px`)
+    }
+    apply()
+    let raf = 0
+    const schedule = () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    window.addEventListener('resize', schedule)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
+    if (ro && document.body) ro.observe(document.body)
+    return () => {
+      window.removeEventListener('resize', schedule)
+      if (ro) ro.disconnect()
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
   // 预览宽度（px）只是界面状态，不写进名片。收起预览时退出全屏，宽度保留。
   //   null = 没拖过，用 CSS 的默认宽度（窄屏降级规则才管得到它）。
   //   full 由 ManifestPage 持有（受控）：全屏时要让「检查结果」面板退出抽屉，
@@ -62,10 +94,18 @@ export default function Stage ({ left, center, right, open, onToggle, full, onFu
     }
   }, [full])
 
-  const geometry = () => ({
-    stageW: stageRef.current ? stageRef.current.getBoundingClientRect().width : window.innerWidth,
-    leftW: leftRef.current ? leftRef.current.getBoundingClientRect().width : 32,
-  })
+  // 左栏此刻占的宽度由 CSS 的 --wz-left-w 表达（收起 = 边条，展开 = 抽屉）。
+  //   不再量 aside 的实际宽度：aside 现在恒占一条边条，展开的抽屉是它内部的面板。
+  const geometry = () => {
+    const el = stageRef.current
+    const declared = el
+      ? parseFloat(getComputedStyle(el).getPropertyValue('--wz-left-w'))
+      : 0
+    return {
+      stageW: el ? el.getBoundingClientRect().width : window.innerWidth,
+      leftW: Number.isFinite(declared) && declared > 0 ? declared : 32,
+    }
+  }
   const resizeTo = (want) => setRightW(clampPreviewWidth(want, geometry()))
 
   // 拖分隔条：往左拖变宽。用 pointer capture，拖出分隔条之外也跟手。
@@ -107,14 +147,16 @@ export default function Stage ({ left, center, right, open, onToggle, full, onFu
           onToggle={() => onToggle('left')}
           title={t('Scanned parameters', '扫描到的参数')}
           arrow="→"
-          asideRef={leftRef}
         >
           {left}
         </Drawer>
       )}
 
-      <main className="wz-stage-main">{center}</main>
+      <main className="wz-stage-main">
+        {center}
+      </main>
 
+      {hasRight && (
       <Drawer
         side="right"
         open={rightOpen}
@@ -147,6 +189,7 @@ export default function Stage ({ left, center, right, open, onToggle, full, onFu
       >
         {right}
       </Drawer>
+      )}
 
     </div>
   )
@@ -164,38 +207,39 @@ export default function Stage ({ left, center, right, open, onToggle, full, onFu
  * @param {boolean} resizing 正在拖宽（拖的时候关掉宽度动画，否则不跟手）
  * @param {number|null} width 人拖出来的宽度（px）；null 用 CSS 的默认宽度
  * @param {React.ReactNode} resizer 左边缘的分隔条（只有右边条用）
- * @param {object} asideRef 外层 aside 的 ref（量左边条此刻的宽度）
  * @param {React.ReactNode} extra 展开时箭头旁的额外按钮
  * @param {React.ReactNode} children 抽屉里的内容
  */
 function Drawer ({
-  side, open, onToggle, title, arrow, full, resizing, width, resizer, asideRef, extra, children,
+  side, open, onToggle, title, arrow, full, resizing, width, resizer, extra, children,
 }) {
   const { t } = useT()
   const cls = `wz-drawer wz-drawer-${side}${open ? ' is-open' : ''}`
     + `${open && full ? ' is-full' : ''}${resizing ? ' is-resizing' : ''}`
   return (
     <aside
-      ref={asideRef}
       className={cls}
       style={width ? { width: `${width}px` } : undefined}
       aria-label={title}
     >
-      {resizer}
-      <div className="wz-drawer-handles">
-        <button
-          className="wz-drawer-handle"
-          type="button"
-          onClick={onToggle}
-          title={open ? t('Close', '收起') : title}
-          aria-label={open ? t('Close', '收起') : title}
-          aria-expanded={open}
-        >
-          {open ? '×' : arrow}
-        </button>
-        {open && extra}
+      {/* 开合按钮贴在 aside 上，不跟面板一起滑：
+          收起时它就是露出来的那一条，展开时它就是抽屉的外上角。
+          放进面板里的话，收起瞬间它要换到面板另一端，看起来是先跳一下再滑回去。 */}
+      <button
+        className="wz-drawer-handle wz-drawer-toggle"
+        type="button"
+        onClick={onToggle}
+        title={open ? t('Close', '收起') : title}
+        aria-label={open ? t('Close', '收起') : title}
+        aria-expanded={open}
+      >
+        {open ? '×' : arrow}
+      </button>
+      <div className="wz-drawer-panel">
+        {resizer}
+        {open && extra ? <div className="wz-drawer-actions">{extra}</div> : null}
+        {open && <div className="wz-drawer-body">{children}</div>}
       </div>
-      {open && <div className="wz-drawer-body">{children}</div>}
     </aside>
   )
 }

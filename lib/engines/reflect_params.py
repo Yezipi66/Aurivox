@@ -43,12 +43,20 @@ stdout: 一行 JSON
 
 from __future__ import print_function
 
+import ast
 import inspect
 import json
 import os
 import re
 import sys
 import traceback
+
+# 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp936），
+#   而这里要吐中文（错误原文、建议、模块名都可能是中文）⇒ 编码不上就
+#   UnicodeEncodeError，脚本以非零码死掉，调用方会把它读成「探针自己崩了」，
+#   而不是「这台引擎没有可反射的参数」。调用方按 utf-8 解码，这边就得按 utf-8 编码；
+#   不依赖调用方传没传 PYTHONIOENCODING。
+sys.stdout.reconfigure(encoding='utf-8')
 
 BANNER = "[reflect]"
 
@@ -335,9 +343,243 @@ def _jsonable(value):
 
 
 # ---------------------------------------------------------------------------
+#  2b) 静态解析（AST）：不 import 模块也能拿到签名
+# ---------------------------------------------------------------------------
+#  为什么优先走这条路：import 一个推理模块会连带加载 torch / lightning，
+#  冷启动实测二十多秒，而这二十多秒里 Node 那边同步等着，整个服务被拖住。
+#  要拿的是静态事实：参数叫什么、默认值是什么、注解写了什么、说明是什么。
+#  这些全写在源码的字面上，ast.parse 读源码就能拿到，不需要执行模块，
+#  更不需要把推理栈拉起来。import 路只在静态解析失败时兜底。
+
+# 默认值在源码里是表达式节点。能求值就求值（literal_eval 比 eval 安全，
+# 它只认字面量），求不出就留源码文本与一句说明，绝不执行上游代码。
+def _default_from_node(node):
+    if node is None:
+        return None, None, "none"
+    try:
+        value = ast.literal_eval(node)
+        return _jsonable(value), _kind_of(value), "literal"
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        try:
+            text = ast.unparse(node)[:120]
+        except Exception:
+            text = node.__class__.__name__
+        # 注解是字面量时也能给类型线索（例如 speed: float = None）
+        return None, {"kind": "unknown", "confidence": "none",
+                      "why": "默认值是表达式 %s，没有执行它" % text}, "expr"
+
+
+def _annotation_from_node(node):
+    """把注解节点变成与 _annotation_of 同形状的对象。"""
+    if node is None:
+        return None
+    try:
+        text = ast.unparse(node)
+    except Exception:
+        return None
+    if "typing" in text or "Literal" in text:
+        return {"raw": text, "literal_choices": _literal_choices(text)}
+    return {"raw": text}
+
+
+def _signature_from_fn(fn):
+    """从一个 FunctionDef / AsyncFunctionDef 节点取参数清单。
+
+    形状与 _reflect_callable 完全一致，下游 merge / buildDraft 不用分路。
+    """
+    args = fn.args
+    # Python 3.8+ 有 posonlyargs；位置参数与默认值按尾部对齐。
+    posonly = list(getattr(args, "posonlyargs", []))
+    positional = posonly + list(args.args)
+    defaults = list(args.defaults)
+    pad = [None] * (len(positional) - len(defaults))
+    all_defaults = pad + defaults
+
+    pairs = [(p.arg, d) for p, d in zip(positional, all_defaults)]
+    # 关键字参数：kw_defaults 与 kwonlyargs 一一对应，None 表示必填。
+    pairs += [(p.arg, d) for p, d in zip(args.kwonlyargs, args.kw_defaults)]
+    # *args / **kwargs：平台不替人猜怎么展开，记一条跳过原因。
+    var = []
+    if args.vararg:
+        var.append({"name": args.vararg.arg, "phase": None, "skipped": True,
+                    "why": "变长参数（*args）：平台不替用户猜测怎么展开"})
+    if args.kwarg:
+        var.append({"name": args.kwarg.arg, "phase": None, "skipped": True,
+                    "why": "变长参数（**kwargs）：平台不替用户猜测怎么展开"})
+    return pairs, var
+
+
+def _reflect_fn_node(fn, phase, skip, fallback_doc=None):
+    """静态反射一个函数节点，返回 (参数清单, 警告)。"""
+    if fn is None:
+        return [], None
+    doc = ast.get_docstring(fn) or fallback_doc
+    pairs, var = _signature_from_fn(fn)
+    out = []
+    for v in var:
+        out.append({**v, "phase": phase})
+    for name, default_node in pairs:
+        if name in BIND_SLOTS:
+            continue
+        if name in skip:
+            out.append({"name": name, "phase": phase, "skipped": True,
+                        "why": "spec.skip 点名的参数（宿主自己要用，不进 parameters[]）"})
+            continue
+        default, kind, source = _default_from_node(default_node)
+        default_repr = _safe_unparse(default_node)
+        default_repr = default_repr[:120] if default_repr is not None else None
+        ann_node = None
+        # 注解按名字对应：从位置参数与 kwonly 两段里找同名的那个。
+        for p in (getattr(fn.args, "posonlyargs", []) + fn.args.args + fn.args.kwonlyargs):
+            if p.arg == name:
+                ann_node = p.annotation
+                break
+        entry = {
+            "name": name,
+            "phase": phase,
+            "required": default_node is None,
+            "default": default,
+            "default_repr": default_repr,
+            "kind": kind,
+            "annotation": _annotation_from_node(ann_node),
+            "name_hint": _hint_from_name(name),
+            "help": _extract_help(doc, name),
+        }
+        ann = entry.get("annotation") or {}
+        if ann.get("literal_choices"):
+            entry["upstream_choices"] = ann["literal_choices"]
+        out.append(entry)
+    return out, None
+
+
+def _safe_unparse(node):
+    try:
+        return ast.unparse(node)
+    except Exception:
+        return None
+
+
+def _find_class_node(tree, class_name):
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return node
+    return None
+
+
+def _find_fn_node(class_node, name):
+    if not name or class_node is None:
+        return None
+    for item in class_node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == name:
+            return item
+    return None
+
+
+def _module_source(module_name, sys_path):
+    """module 名 → 源码路径。只认 sys_path 下的文件，不碰 site-packages。"""
+    if not module_name:
+        return None
+    rel = os.path.join(*module_name.split("."))
+    for base in (sys_path or []):
+        for cand in (os.path.join(base, rel + ".py"),
+                     os.path.join(base, rel, "__init__.py")):
+            if os.path.isfile(cand):
+                return cand
+    return None
+
+
+def _reflect_static(spec):
+    """AST 静态反射。成功返回结果对象；失败返回 None，由调用方回退 import。"""
+    module_name = spec.get("module")
+    class_name = spec.get("class")
+    method_name = spec.get("method")
+    src = _module_source(module_name, spec.get("sys_path"))
+    if not src:
+        return None
+    try:
+        with open(src, "r", encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    klass = _find_class_node(tree, class_name)
+    if klass is None:
+        return None
+
+    warnings = []
+    skip = list(spec.get("skip") or [])
+    class_doc = ast.get_docstring(klass)
+    init_node = _find_fn_node(klass, "__init__")
+    load, w = _reflect_fn_node(init_node, "load", skip, fallback_doc=class_doc)
+    if w:
+        warnings.append("加载期：%s" % w)
+
+    # 调用期。方法与加载期同规矩：只反射这一个方法，不是整个类的一锅端。
+    partial = False
+    call = []
+    bind_candidates = []
+    for fn_node, phase in ((init_node, "load"),):
+        if fn_node is not None:
+            for p in (getattr(fn_node.args, "posonlyargs", []) +
+                      fn_node.args.args + fn_node.args.kwonlyargs):
+                slot = BIND_SLOT_NAMES.get(p.arg)
+                if slot:
+                    bind_candidates.append({"name": p.arg, "target": p.arg,
+                                            "phase": phase, "bind_slot": slot})
+
+    if method_name:
+        method_node = _find_fn_node(klass, method_name)
+        if method_node is None:
+            warnings.append("调用期：%s 上没有 %s 这个方法：只给了加载期"
+                            % (class_name, method_name))
+            partial = True
+        else:
+            call, w = _reflect_fn_node(method_node, "call", skip)
+            if w:
+                warnings.append("调用期：%s" % w)
+            for p in (getattr(method_node.args, "posonlyargs", []) +
+                      method_node.args.args + method_node.args.kwonlyargs):
+                slot = BIND_SLOT_NAMES.get(p.arg)
+                if slot:
+                    bind_candidates.append({"name": p.arg, "target": p.arg,
+                                            "phase": "call", "bind_slot": slot})
+    else:
+        warnings.append("没给 method：只反射了加载期")
+        partial = True
+
+    return {
+        "ok": True,
+        "partial": partial,
+        "partial_reason": (("方法 %s 在 %s 上不存在" % (method_name, class_name))
+                           if (partial and method_name) else
+                           ("没给 method：只反射了加载期" if partial else None)),
+        "python": {
+            "version": sys.version.split()[0],
+            "executable": sys.executable,
+            "module_file": src,
+        },
+        "class": "%s.%s" % (module_name, class_name),
+        "method": method_name,
+        "load": load,
+        "call": call,
+        "bind_candidates": bind_candidates,
+        "warnings": warnings,
+        "via": "ast",
+    }
+
+
+# ---------------------------------------------------------------------------
 #  3) 主流程
 # ---------------------------------------------------------------------------
 def reflect(spec):
+    # 静态优先：签名是写在源码里的静态事实，ast.parse 就够，不必 import。
+    #   import 会把 torch / lightning 整条推理栈拉起来（实测二十多秒），
+    #   那段时间调用方同步等着，连带把读名片这种毫秒级请求也堵住。
+    # 静态路只在「源码就在 sys_path 下」时走得通；模块藏在 venv 的 site-packages
+    # 里时退回 import，不让静态路的能力边界变成「这台引擎反射不了」。
+    static = _reflect_static(spec)
+    if static is not None:
+        return static
+
     _scrub_sys_path()
     for p in (spec.get("sys_path") or []):
         if p and os.path.isdir(p) and p not in sys.path:
@@ -426,6 +668,7 @@ def reflect(spec):
         #   纯新增：load / call 两个列表一个字没动，老调用方不受影响。
         "bind_candidates": bind_candidates,
         "warnings": warnings,
+        "via": "import",
     }
 
 

@@ -190,7 +190,7 @@ test('失败结论都带「为什么」与「怎么办」，只给一句 error �
   const src = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
   assert.match(src, /checks\.audio\.cause/, 'A 级与 B 级的根因要显示出来')
   assert.match(src, /checks\.audio\.hint/, '建议要显示出来')
-  assert.match(src, /引擎与宿主的原始输出/, '原始输出要能展开看，不能只给一句概括')
+  assert.match(src, /log-view/, '原始输出要用项目的日志视图展示，不能只给一句概括')
   assert.match(src, /host_stderr/, '宿主输出要参与展示')
 })
 
@@ -279,10 +279,12 @@ test('界面把两层结论分开呈现，B 级不计入运行验证通过', () 
     '静态全绿时必须说明不能证明能出声')
 })
 
-test('权重那道要写明运行期资源不在核对范围内', () => {
+test('权重那道说明这道检查做什么，并如实列出运行期资源', () => {
   const c = checks().find((x) => x.key === 'checkpoints')
-  assert.match(c.whyZh, /不在该项内/)
-  assert.match(c.why, /not covered by this check/)
+  assert.match(c.whyZh, /核对名片声明的权重文件是否齐全/)
+  assert.match(c.why, /listed alongside the result/)
+  // 说明写「这道查什么」，不写成「这道不查什么」的辩解。
+  assert.doesNotMatch(c.whyZh, /不在.*范围内|不核对/)
 })
 
 test('校验端点把运行期资源挂到权重那道，界面能读到同一份事实', () => {
@@ -290,5 +292,5 @@ test('校验端点把运行期资源挂到权重那道，界面能读到同一�
   assert.match(bridge, /r\.checks\.checkpoints\.external = fs\.existsSync\(dir\) \? scanRuntimeDownloads\(dir\) : \[\]/)
   const ui = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
   assert.match(ui, /Array\.isArray\(check && check\.external\)/)
-  assert.match(ui, /不在此项核对范围内/)
+  assert.match(ui, /列举如下/)
 })

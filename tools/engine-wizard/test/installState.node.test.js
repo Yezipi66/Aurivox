@@ -301,3 +301,4 @@ test('env 端点把执行结果记进安装状态，失败与桥接异常都算�
   assert.match(body, /markEnvResult\(input\.root \|\| projectRoot\(\) \|\| '', envId, r\)/)
   assert.strictEqual((body.match(/recordEnvResult\(r\)/g) || []).length, 2)
 })
+

@@ -41,6 +41,8 @@ function validatePlugin () {
   const { handleValidate } = require(path.join(CORE, 'bridge.js'))
   const { handleSpec } = require(path.join(CORE, 'specbridge.js'))
   const { handleInstalled, handleSave, handleCards, handleRead } = require(path.join(CORE, 'savebridge.js'))
+  // 第 5 步右侧资产栏的数据源：向导自己读盘，不经过平台后端。
+  const { handleAssets } = require(path.join(CORE, 'assetsbridge.js'))
   // 整体引用 wizardbridge，不逐个解构：解构在模块加载时求值，
   // 引擎侧新加的导出不会进入解构出来的函数表。整体引用 + 运行时取 .handleX，
   // 每次请求都读到最新的导出表。
@@ -58,8 +60,10 @@ function validatePlugin () {
     handleSpec, handleRead,
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
     wb.handleClone, wb.handleCloneCancel, wb.handleCloneRemove, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
-    wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerifyMeasureProgress, wb.handleVerifyMeasureCancel,
+    wb.handleVerifyChecks, wb.handleVerifyAudioStream, wb.handleVerifyAudio,
+    wb.handleVerifyMeasureProgress, wb.handleVerifyMeasureCancel,
     wb.handleVerifyMeasure, wb.handleVerifyRef, wb.handleVerifyRefs, wb.handleVerifyRefFile,
+    handleAssets,
     wb.handleRefUpload, wb.handleVerify, wb.handleProfile,
     handleValidate, wb.handleCliArgs,
     wb.handleDiscover,

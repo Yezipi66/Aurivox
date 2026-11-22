@@ -47,3 +47,21 @@ test('有扫描存档时跳过静默重扫', () => {
   assert.match(block, /if \(s && s\.scan\) return/,
     '有存档还重扫，就还是有 /wizard/discover 的空档')
 })
+
+test('扫描写回把认出的开关落成合成参数的参数行', () => {
+  // 扫描只写 call.args 与 params.call_time 时，界面上没有任何一格对应那批开关，
+  //   人于是对着一个空表发愁：参数明明扫出来了，却要再手拖一遍才看得见。
+  //   守的是「点一次扫描，参数表就该有内容」这条路径。
+  assert.match(PAGE, /addParamsFromScan/,
+    '扫描写回没有落成 parameters[]，合成参数表会一直是空的')
+  assert.match(PAGE, /next\.parameters = rows\.manifest\.parameters/,
+    '算出来的参数行没有写进名片，界面拿不到')
+})
+
+test('类型补齐的清单含全部扫描结果，不只入口与当前分组', () => {
+  // 手敲一个属于别的子命令的开关时，清单里得有它，类型才补得上。
+  //   只给「入口 + 当前分组」，那类开关在清单里查不到，于是静默停在 text，
+  //   而它的类型上游明明写了（index-tts 的 --output-dir 就是这样）。
+  assert.match(PAGE, /const shapeSource = scope\.params\.length\s*\?\s*\[\.\.\.scope\.params, \.\.\.scanned\.filter/,
+    '类型补齐的清单要接上全量 scanned，否则手敲别的子命令的开关补不上类型')
+})

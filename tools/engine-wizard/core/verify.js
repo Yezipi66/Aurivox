@@ -32,7 +32,15 @@ function withDiagnosis (r) {
   }
   const status = Number.isFinite(r.status) ? r.status : null
   const d = diagnose(text, status)
-  return { ...r, cause: r.cause || d.cause, hint: r.hint || d.hint }
+  // cause/hint 是中文，causeEn/hintEn 是同一句的英文：前端按语言取。
+  //   英文缺了会回落到中文（见 StepVerify 的 pickLang），不会显示空白。
+  return {
+    ...r,
+    cause: r.cause || d.cause,
+    causeEn: r.causeEn || d.causeEn,
+    hint: r.hint || d.hint,
+    hintEn: r.hintEn || d.hintEn,
+  }
 }
 
 /**
@@ -49,8 +57,8 @@ function checks () {
       titleEn: 'Environment integrity',
       titleZh: '运行环境完整性',
       cost: 'cheap',
-      why: 'Checks on disk whether the interpreter, the inference entrypoint and verify.sys_path are present. The engine is not started, and it does not check whether the environment was built the way the manifest declares or which versions are installed.',
-      whyZh: '检查解释器、推理入口与 verify.sys_path 是否存在；仅核对文件，不启动引擎。此项也不核对环境是否按名片声明的安装方式建立，装的是哪个版本同样查不出来。',
+      why: 'Checks whether the interpreter, the inference entrypoint and verify.sys_path declared in the manifest exist on disk.',
+      whyZh: '核对名片声明的解释器、推理入口与 verify.sys_path 是否存在于磁盘。',
     },
     {
       key: 'env_deep',
@@ -59,8 +67,11 @@ function checks () {
       titleEn: 'Engine import',
       titleZh: '引擎模块可导入',
       cost: 'slow',
-      why: "Uses the engine's own interpreter to import the module, class and method declared in the manifest.",
-      whyZh: '使用引擎自身的解释器，导入名片声明的模块、类与方法。',
+      // 只验启动环境：探针在 import 期间强制离线，不会替引擎下任何权重。
+      //   这句话要写在说明里：缺运行期资源时导入会失败，读的人得知道那是
+      //   「权重还没下」而不是「包没装」，不要去重装环境。
+      why: "Uses the engine's own interpreter to import the module, class and method declared in the manifest. The probe runs offline, so an import that needs a runtime resource fails here and the reason is reported.",
+      whyZh: '使用引擎自身的解释器，导入名片声明的模块、类与方法。探针在离线状态下运行，需要运行期资源的导入会在此失败，并给出原因。',
     },
     {
       key: 'checkpoints',
@@ -69,8 +80,8 @@ function checks () {
       titleEn: 'Model weights',
       titleZh: '模型权重完整性',
       cost: 'cheap',
-      why: 'Checks whether every weights file named in the manifest is present. The ready field has three states; null means the platform cannot determine it. Resources the engine fetches on first run are listed separately and are not covered by this check.',
-      whyZh: '核对名片声明的权重文件是否齐全。ready 为三态，null 表示平台无法判定。引擎首次推理时自行拉取的资源不在该项内，结果中另行列出。',
+      why: 'Checks whether every weights file named in the manifest is present and reports the result as present, missing, or undetermined. Resources the engine fetches on its first inference are listed alongside the result.',
+      whyZh: '核对名片声明的权重文件是否齐全，结论为齐全、缺失或无法判定。引擎首次推理时自行拉取的资源随结果一并列出。',
     },
     {
       key: 'audio',
@@ -95,10 +106,14 @@ function runChecks (id, opts = {}) {
   const { checkEngineEnvShallow, checkEngineEnvDeep } = platform('lib/engines/envCheck.js')
   const { checkpointStatus } = platform('lib/engines/checkpoints.js')
   const { resolveEngineProfile } = platform('lib/engines/profile.js')
+  const { requireEngine } = platform('lib/engines/registry.js')
 
-  let profile
+  let profile, manifest
   try {
     profile = resolveEngineProfile(id, process.env)
+    // profile 有意不透出 call（那是宿主契约，前端碰它就成第二份）：
+    //   verify.imports 空着时要用推理入口现算，这段从名片里单独取。
+    manifest = requireEngine(id)
   } catch (e) {
     return { ok: false, code: 'NO_PROFILE',
       error: `The platform cannot read the manifest for ${id}: ${e.message}`, errorZh: `平台解析不出 ${id} 的名片：${e.message}` }
@@ -132,7 +147,7 @@ function runChecks (id, opts = {}) {
   // 第 2 道：深层
   if (opts.deep !== false) {
     try {
-      const r = checkEngineEnvDeep(profile, { rootDir: ROOT })
+      const r = checkEngineEnvDeep(profile, { rootDir: ROOT, call: manifest && manifest.call })
       out.checks.env_deep = withMeta('env_deep', { key: 'env_deep', ...r })
       if (!r.ok) out.ok = false
     } catch (e) {
@@ -151,14 +166,24 @@ function runChecks (id, opts = {}) {
       ready,
       ok: ready === true,
       note: ready === true
+        ? 'Every weights file named in the manifest is present.'
+        : ready === false
+          ? `The weights are incomplete. ${st.reasonEn || st.reason || 'the cause could not be determined'}`
+          : `Weights status unknown: ${st.reasonEn || st.reason || 'the cause could not be determined'}. `
+            + 'It can be called neither complete nor missing.',
+      noteZh: ready === true
         ? '名片声明的权重文件齐全。'
         : ready === false
           ? `模型权重不完整。${st.reason || '未能查明原因'}`
-          // 状态未知保留三态：原因取平台查明的 reason，不自行推测，
-          //   以免把「声明了 checkpoints 但未声明 required」描述成缺文件。
           : `模型权重状态未知：${st.reason || '未能查明原因'}。既不能判定为完整，也不能判定为缺失。`,
       required: st.required || [],
       missing: st.missing || [],
+      // 有 .tmp 没正式文件 = 下载中途停了（继续下载即可），与「从没下过」分开说。
+      partial: st.partial || [],
+      // 正式文件在、同名 .tmp 也在：不影响判定，只提示有未清理的临时文件。
+      stale_tmp: st.stale_tmp || [],
+      // 名片把临时文件名写进了 required：名片的问题，不是盘的问题。
+      declared_tmp: st.declared_tmp || [],
       abs_path: st.abs_path || null,
     })
     // ready 为 null 时不计为失败，也不得计为通过
@@ -270,18 +295,23 @@ async function runAudioCheckRaw (id, opts = {}) {
   const verifyOnce = (baseUrl) => verifyEngine({
     profile: baseUrl ? { ...profile, base_url: baseUrl } : profile,
     manifest, level, request, root: ROOT,
+    // 验证器自己的输出也实时转：它是这条链上唯一说明「正在做什么」的字。
+    onLine: opts.onLine,
   })
 
   const hasBaseUrl = typeof profile.base_url === 'string' && profile.base_url.trim()
   if (hasBaseUrl) {
     try {
-      const r = verifyOnce(null)
+      const r = await verifyOnce(null)
       return { ok: r.ok !== false, level, ...r }
     } catch (e) {
       const msg = String((e && e.message) || e)
       return { ok: false, code: 'AUDIO_FAILED', level, error: msg, errorZh: msg,
-        cause: '校验没有跑起来，宿主或探针在这一步之前就出错了',
-        hint: '看下方原文；名片写错（入口、解释器、槽位名）时错误通常出在最前面几行。' }
+        cause: 'The check never started: the host or the probe failed before this step',
+        causeZh: '校验没有跑起来，宿主或探针在这一步之前就出错了',
+        hint: 'Read the raw output below; when the manifest is wrong (entrypoint, interpreter, '
+          + 'slot name) the error is usually in the first few lines.',
+        hintZh: '看下方原文；名片写错（入口、解释器、槽位名）时错误通常出在最前面几行。' }
     }
   }
 
@@ -291,22 +321,71 @@ async function runAudioCheckRaw (id, opts = {}) {
   const hosted = await hostRunner.withTempHost({
     id, profile, root: ROOT,
     run: (base) => verifyOnce(base),
+    // 调用方要实时看输出时把回调递进来（第 5 步的流式端点）。
+    //   不传时与以前一致：只在结束时拿到两路全文。
+    onLine: opts.onLine,
   })
   if (!hosted.ok) {
-    // 宿主的 stderr 单独给一份全文：它常含真正的根因（缺模块、权重路径、
-    //   torch 版本），挤进一句话里会被截断，也读不清是哪一段。
+    // 宿主的两路输出各自给一份全文：stderr 常含真正的根因（缺模块、权重路径、
+    //   torch 版本），stdout 是引擎自己说的话（模型路径、加载进度）。
+    //   合成一摞时界面只能笼统叫「stderr」，读的人分不清哪句是失败原因、哪句是正常输出。
     const stderr = hosted.stderr || ''
+    const stdout = hosted.stdout || ''
+    // 宿主那一句原文按语言取：hostRunner 给的是成对的（error / errorEn）。
+    //   只取一份的话，英文界面里会嵌一段中文，读的人分不清那是原文还是缺陷。
+    const rawEn = hosted.errorEn || hosted.error || ''
+    const rawZh = hosted.error || ''
     return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
-      error: `The local host required for the synthesis check could not be started (${hosted.stage}): ${hosted.error}`,
+      error: `The local host required for the synthesis check could not be started (${hosted.stage})`
+        + `${rawEn ? `: ${rawEn}` : ''}`,
       errorZh: `语音合成校验所需的本地宿主未能启动（阶段：${hosted.stage}）。`
-        + `${hosted.error ? `宿主报告的原文：${hosted.error}` : ''}`
-        + `${stderr ? ' 宿主进程的输出见下方。' : ''}`,
-      cause: '宿主的进程没有起来，或者起来后立即退出',
-      hint: '看下方宿主输出：No module named 是缺依赖（回到第 2 步），'
+        + `${rawZh ? `宿主报告的原文：${rawZh}` : ''}`
+        + `${(stderr || stdout) ? ' 宿主进程的输出见下方。' : ''}`,
+      cause: 'The host process did not start, or started and exited immediately',
+      causeZh: '宿主的进程没有起来，或者起来后立即退出',
+      hint: 'Read the host output below: "No module named" means a missing dependency (back to step 2); '
+        + 'a weights-path error means checking the weights folder in step 3; '
+        + 'torch errors usually mean the device or the version is wrong.',
+      hintZh: '看下方宿主输出：No module named 是缺依赖（回到第 2 步），'
         + '权重路径报错就核对第 3 步的权重目录，torch 相关报错通常是设备或版本不对。',
+      host_stdout: stdout || null,
       host_stderr: stderr || null }
   }
   const r = hosted.result
   return { ok: r.ok !== false, level, ...r }
 }
-module.exports = { checks, runChecks, runAudioCheck, withDiagnosis }
+/**
+ * 第 5 步 A 级执行完成后，把结论写进名片的 acceptance 节。
+ * 读磁盘三节原文（契约哈希必须基于原样的三节，不能用投影视图），
+ * 写完经 saveManifest 走原子写 + 备份。写失败不抛：验收结论照常展示给用户，
+ * 只是这次没留下记录，如实回报原因。
+ * @returns {{ok:boolean, acceptance?:object, error?:string}}
+ */
+function persistAcceptance (id, opts = {}) {
+  const o = opts || {}
+  let manifestPath
+  try {
+    manifestPath = platform('tools/engine-wizard/core/wizardRoot.js').manifestPathForRead(id)
+  } catch { manifestPath = null }
+  if (!manifestPath) return { ok: false, error: '找不到这张名片的落盘路径' }
+  let raw
+  try { raw = JSON.parse(require('node:fs').readFileSync(manifestPath, 'utf8')) }
+  catch (e) { return { ok: false, error: `名片读不出来：${e.message}` } }
+
+  const acceptance = platform('lib/engines/acceptance.js').buildAcceptance({
+    manifestV011: raw,
+    profile: o.profile,
+    request: o.request,
+    result: o.result,
+    engineCwd: raw.registration && raw.registration.environment
+      ? raw.registration.environment.cwd : null,
+    root: ROOT,
+  })
+  const enginesDir = path.dirname(path.dirname(manifestPath))
+  const { saveManifest } = require('./save')
+  const saved = saveManifest(raw, { enginesDir, overwrite: true, acceptance })
+  if (!saved.ok) return { ok: false, error: saved.error, code: saved.code }
+  return { ok: true, acceptance }
+}
+
+module.exports = { checks, runChecks, runAudioCheck, withDiagnosis, persistAcceptance }

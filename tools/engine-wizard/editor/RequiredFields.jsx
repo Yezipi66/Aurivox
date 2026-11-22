@@ -4,6 +4,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { launchConventions, withRuntimePatch, withLaunchConventions } from './optionalKeys'
 import { readWeights, writeWeights, TOKEN } from './weightsField'
 import { readTextVia, withTextVia } from './textEntryField'
+import { callKindOf, withCallKind } from './entryChoiceField'
 import EntryChoice from './EntryChoice'
 import Select from '../../../web/src/components/common/Select'
 
@@ -48,8 +49,17 @@ function Cell ({ label, code, hint, badge, unset, children }) {
 }
 
 export default function RequiredFields ({ manifest, onChange, autofill, bindSlots,
-  entryCandidates, entryConfidence, pythonEntries }) {
-  const { t } = useT()
+  entryCandidates, entryConfidence, pythonEntries, canScan, scanBusy, onScan }) {
+  const { t, lang } = useT()
+
+  // 候选的 help 与参数池同一种形状：上游原话是字符串，call.bind 补进来的那类是
+  //   {en,zh}。直接渲染对象会崩在 React children 上。
+  const helpText = (v) => {
+    if (v && typeof v === 'object') {
+      return lang === 'en' ? (v.en || v.zh || '') : (v.zh || v.en || '')
+    }
+    return v == null ? '' : String(v)
+  }
   const runtime = (manifest && manifest.runtime) || {}
   const call = (manifest && manifest.call) || {}
   const bind = call.bind || {}
@@ -127,7 +137,20 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
   // 模型权重这一格
   const weights = readWeights(call)
-  const isCli = (call.kind || 'python') === 'cli'
+  // 形态只认一个口径：名片写了 kind 就认它，没写按 argv 判。
+  //   旧写法 `(call.kind || 'python') === 'cli'` 与 ManifestForm 的
+  //   `kind === 'cli' || Array.isArray(argv)` 不一致：没写 kind 但有 argv 时，
+  //   一处按 python 显示、一处按 cli 显示，同一张名片两套界面。
+  const kind = callKindOf(manifest)
+  const isCli = kind === 'cli'
+  const setKind = (next) => {
+    onChange((cur) => withCallKind(cur, next))
+    // 形态换了，上一种形态的参数全部作废，按新形态重扫一次。
+    //   扫描器会自己从静态候选里挑一条入口去反射，所以一次就够：不需要先补入口、
+    //   再扫第二次。
+    if (!onScan) return
+    setTimeout(() => { onScan({ writeBack: true }) }, 0)
+  }
   const setWeights = (patch) => onChange((cur) => {
     const c = (cur && cur.call) || {}
     return { ...cur, call: writeWeights(c, { ...readWeights(c), ...patch }) }
@@ -142,12 +165,15 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
   // 候选清单：扫描认出来的每个参数一行。菜单是页面内的普通 DOM，
   //   参数名与它自己的说明可以摆在同一行；输入框里显示的仍是这一个值本身。
-  const candidateOptions = candidates.map((a) => (
-    <option key={a.target} value={a.target} title={a.help || undefined}>
-      {a.target}
-      {a.help ? <span style={{ opacity: 0.6, marginLeft: 8 }}>{a.help}</span> : null}
-    </option>
-  ))
+  const candidateOptions = candidates.map((a) => {
+    const help = helpText(a.help)
+    return (
+      <option key={a.target} value={a.target} title={help || undefined}>
+        {a.target}
+        {help ? <span style={{ opacity: 0.6, marginLeft: 8 }}>{help}</span> : null}
+      </option>
+    )
+  })
 
   // 槽位清单来自 /wizard/spec 的 bindSlots（平台 hostProfile.js 的 BIND_SLOTS 原样），不手抄。
   const SLOT_LABELS = {
@@ -207,11 +233,34 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
         </span>
       </div>
       <div className="section-body">
-        {/* 推理入口排在最前：它也是必填，缺了这台引擎起不来。
-            版式跟同区其它格一样（标签 + 键名徽标 + 输入框 + 说明），不再单占一段。 */}
+        {/* 推理入口：它也是必填，缺了这台引擎起不来。
+            「调用方式」并在这一行的左侧：形态决定这格填模块名还是命令行词序，
+            分开摆时人要读完上一格才知道这一格该填什么。
+            扫描按钮跟在同一行右侧，它改的正是这两格。 */}
         <EntryChoice manifest={manifest || {}} onChange={onChange}
           candidates={entryCandidates || []} confidence={entryConfidence || null}
-          pythonEntries={pythonEntries || []} />
+          pythonEntries={pythonEntries || []}
+          kindSlot={(
+            <Select className="control" style={{ maxWidth: 190 }} value={kind}
+              title={t('How the host calls this engine: one command line per request, or a Python class imported into the host process.',
+                '宿主以什么方式调用这台引擎：每次请求起一条命令行，还是在宿主进程内导入一个 Python 类。')}
+              inputProps={{ 'aria-label': t('Call mode', '调用方式') }}
+              onChange={(e) => setKind(e.target.value)}>
+              <option value="cli">{t('cli (command line)', '命令行 cli')}</option>
+              <option value="python">{t('python (class)', 'Python 类')}</option>
+            </Select>
+          )}
+          actionSlot={canScan ? (
+            <button className="btn btn-sm btn-primary" type="button"
+              disabled={!!scanBusy} onClick={onScan}>
+              {scanBusy ? t('Scanning…', '扫描中…') : t('Scan parameters', '扫描参数')}
+            </button>
+          ) : null} />
+
+        <div className="field-hint" style={{ marginTop: -4, marginBottom: 12 }}>
+          {t('cli starts a new process per request; python imports the class into the host and loads it once. Switching rewrites the binding names to fit the mode, so verify them afterwards.',
+            '命令行形态每次请求起一个进程；Python 类形态在宿主进程内导入，只加载一次。切换时绑定名会按形态改写，切换后请核对。')}
+        </div>
 
         <div className="form-grid wz-required-row">
           {orderedSlots.map((slot) => {
@@ -308,18 +357,23 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                   : slot.key === 'output_path'
                     ? (
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 6, alignItems: 'center' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 6, alignItems: 'center' }}>
                           {input}
-                          {/* 文件 / 目录：扫描按开关名推一个默认值，这里是逃生口。
-                              两列 grid 把右边钉死 120px：用 flex 时下拉会按最长选项
-                              撑开自己，左边的输入框跟着缩，切换时整块位置都在动。 */}
+                          {/* 四档：文件 / 目录 / 标准输出 / 逐块生成。扫描按开关名推一个默认值，
+                              这里是逃生口。两列 grid 把右边钉死 150px：用 flex 时下拉会按
+                              最长选项撑开自己，左边的输入框跟着缩，切换时整块位置都在动。
+                              generator 只在 python 形态成立：命令行进程的产物只能是文件或字节流。 */}
                           <Select className="control"
                             value={returns}
-                            title={t('Does this engine take a file name, or a directory it names itself?',
-                              '这台引擎收的是文件名，还是由它自己起名的目录？')}
+                            title={t('How this engine hands back the audio: a file, a directory it names itself, bytes on stdout, or a generator of chunks.',
+                              '这台引擎以什么方式交回音频：写成文件、由它自己起名的目录、标准输出字节，或逐块产出。')}
                             onChange={(e) => setReturns(e.target.value)}>
                             <option value="file">{t('file', '文件')}</option>
                             <option value="dir">{t('directory', '目录')}</option>
+                            <option value="bytes">{t('stdout', '标准输出')}</option>
+                            {/* 逐块生成只在 python 形态成立：命令行进程的产物只能是文件或字节流，
+                                 cli 形态不渲染这一档（不是禁用，是这一页没有这个选项）。 */}
+                            {!isCli && <option value="generator">{t('generator', '逐块生成')}</option>}
                           </Select>
                         </div>
                         {/* save_dir 与 output_dir 并非同义。这条提醒常驻这里：

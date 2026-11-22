@@ -6,11 +6,12 @@ import ModeCards from './ModeCards'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
 import Stage from './Stage'
+import StepCard from './StepCard'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
-import { computeAutoFill } from './scanAutofill'
+import { computeCliFill, computePythonFill, withPythonEntryFromScan } from './scanAutofill'
 import { modelFilesOf } from './declarationFill'
-import { PARAM_MIME, dragLabelOf, isParamTaken } from './paramDrop'
+import { PARAM_MIME, dragLabelOf, isParamTaken, addParamsFromScan, syncParamsFromScan, scanParamFor } from './paramDrop'
 import { entryFileOf } from './entryChoiceField'
 import { scopeParams } from './paramScope'
 import { loadSession, saveSession } from './useInstallSession'
@@ -32,9 +33,17 @@ import { loadSession, saveSession } from './useInstallSession'
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
-  modelFiles, onRefreshInstall, engineState, onPickEngineTarget,
+  modelFiles, onRefreshInstall, engineState, onPickEngineTarget, frame, dirs, onDirsReload,
 }) {
   const { t } = useT()
+  // 步骤大框的头由外层按固定步骤传进来；单测直接渲染本组件时不传，给一份等价兜底。
+  const stepFrame = frame || { title: t('Write manifest', '填写名片'), done: false, onClose: () => {} }
+  // 「扫描参数」的可用条件：这台引擎在盘上已经有名片，且表单里已经有内容。
+  //   没有名片时扫描没有写回的地方，那种情况由身份条上的「新建名片」承担；
+  //   有名片但还没读进来时，扫描会在一份空表单上做合并，结果与磁盘那一份不一致。
+  const manifestDir = (dirs || []).find((d) => d.id === ((manifest && manifest.id) || ''))
+  const canScan = !!(manifestDir && manifestDir.manifestPresent &&
+    manifest && (manifest.call || manifest.runtime))
   const [view, setView] = React.useState('form')
   // 哪边的抽屉开着。左栏进来就张开：参数池是这一步接下来要拖的东西。
   //   右栏（预览）默认收着：它现在是浮在中栏之上的，张开就盖住表单右边那一列，
@@ -64,6 +73,26 @@ export default function ManifestPage ({
   //   只是界面状态，不写进名片。
   const [guessed, setGuessed] = React.useState(() => new Set(saved.guessed || []))
 
+  // 形态换了（命令行 ⇄ Python 类）：上一种形态的扫描结果全部作废。
+  //   参数池、分组、选中项、自动填结果都是按上一种形态扫出来的，留着会让人
+  //   在「Python 类」下拖到 --train_data 这类命令行开关。换引擎不算形态变化，
+  //   那一份由下面的恢复逻辑接管。
+  const kindNow = (manifest && manifest.call && manifest.call.kind) || null
+  const kindSeen = React.useRef({ engineKey: null, kind: null })
+  React.useEffect(() => {
+    const prev = kindSeen.current
+    if (prev.engineKey === engineKey && prev.kind && kindNow && kindNow !== prev.kind) {
+      setScan(null)
+      setGroup('')
+      setSelected(null)
+      setAutofill(null)
+      setScanErr(null)
+      // 类型靠猜的参数名也是上一形态的：留着会把新形态的行标黄，误导人去确认。
+      setGuessed(new Set())
+    }
+    kindSeen.current = { engineKey, kind: kindNow }
+  }, [engineKey, kindNow])
+
   // 换引擎：读那台自己的扫描状态，没有存档就清空。
   //   恢复态与写回 effect 同批执行时写回会拿到上一台的 state，
   //   用这个 ref 记下「这一帧在恢复」，写回跳过一次。
@@ -72,13 +101,20 @@ export default function ManifestPage ({
     if (!engineKey) return
     const s = loadSession(engineKey) || {}
     restoringFor.current = engineKey
-    setScan(s.scan || null)
-    setGroup(s.group || '')
-    setSelected(s.selected || null)
-    setAutofill(s.autofill || null)
-    setScanErr(s.scanErr || null)
-    setGuessed(new Set(s.guessed || []))
-    setPoolAll(s.poolAll === true)
+    // 存档里的扫描结果按当时的形态扫出来。形态换了以后这批结果整份作废：
+    //   cli 的开关表在 python 页里拖到合成参数上，就是「左栏 12 个、表里 100+」的来源。
+    //   source 为 both 或缺失时说明是旧版本存的，无法判定，照常恢复（不替人猜）。
+    const savedKind = s.scan && (s.scan.source === 'cli' || s.scan.source === 'python')
+      ? s.scan.source : null
+    const kindAtRestore = (manifest && manifest.call && manifest.call.kind) || null
+    const stale = savedKind && kindAtRestore && savedKind !== kindAtRestore
+    setScan(stale ? null : (s.scan || null))
+    setGroup(stale ? '' : (s.group || ''))
+    setSelected(stale ? null : (s.selected || null))
+    setAutofill(stale ? null : (s.autofill || null))
+    setScanErr(stale ? null : (s.scanErr || null))
+    setGuessed(stale ? new Set() : new Set(s.guessed || []))
+    setPoolAll(stale ? false : (s.poolAll === true))
   }, [engineKey])
 
   // 写回会话段：只存扫描派生出来的界面状态，名片本体仍以盘上的为准。
@@ -113,9 +149,12 @@ export default function ManifestPage ({
   //   同一个开关在多个脚本里各有一份，内容还可能不同：--model-name 在推理入口是
   //   zipvoice / zipvoice_distill，在 runtime/nvidia_triton 的客户端脚本里是另一组模型名。
   //   只按扫描顺序取第一条，会把工具脚本上的那份铺成选项表。
+  // 排完入口之后再接全量（含别的子命令）：手敲一个属于别的子命令的开关时，
+  //   清单里得有它，类型才补得上。只给「入口 + 当前分组」时，那类开关在清单里
+  //   查不到，于是静默停在 text，而它的类型上游明明写了。
   const shapeSource = scope.params.length
-    ? [...scope.params, ...grouped.filter((p) => !scope.params.includes(p))]
-    : grouped
+    ? [...scope.params, ...scanned.filter((p) => !scope.params.includes(p))]
+    : scanned
 
   // 左栏哪张卡已经有归属：必填参数区的 bind 槽位、可选能力 / 引擎配置的 role 槽位、
   //   合成参数区已经有的那一行。三处与「把列出的参数一起加入」共用同一条判据
@@ -156,10 +195,14 @@ export default function ManifestPage ({
     if (!id) return
     if (!quiet) { setBusy(true); setScanErr(null) }
     try {
+      // 带上当前形态：扫描按它只交一条路的参数。cli 的开关表与 python 的方法签名
+      //   是两套东西，混着返回就只能在前端再筛一遍，而那一筛迟早漏。
+      const kindAsked = (latestManifest.current && latestManifest.current.call &&
+        latestManifest.current.call.kind) || null
       const r = await fetch('/wizard/discover', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, kind: kindAsked }),
       })
       const j = await r.json()
       if (!j.ok) { if (!quiet) setScanErr(j.error || `HTTP ${r.status}`); return }
@@ -193,17 +236,54 @@ export default function ManifestPage ({
         const fresh = onRefreshInstall ? await onRefreshInstall(id) : null
         if (Array.isArray(fresh)) files = fresh
       } catch (e) { /* 读不到就用手上这份，不阻断扫描 */ }
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, files, pickedPositionals)
+      // 两种形态各走自己的填入：cli 填开关与词序，python 填方法参数名与构造参数。
+      //   共用一套时每一段都要按形态分支，漏一个字段就是一张自相矛盾的名片。
+      const fillFor = (callNow) => ((callNow && callNow.kind) === 'python'
+        ? computePythonFill(pickedParams, callNow, j.python_entries, j.python_entry_suggested, files)
+        : computeCliFill(pickedParams, callNow, bindCands, entryPick, id, declareHints, files, pickedPositionals))
+      const result = fillFor(latest.call || null)
+      // 生成器方法由扫描定返回方式，但采样率来自引擎配置，静态读不到（有些引擎把它
+      //   写在构造时的 configs 里）。这里只说清要填哪一格，不替人猜一个数。
+      const entryPicked = withPythonEntryFromScan(result ? result.call : (latest.call || null), j.python_entries, j.python_entry_suggested)
+      if (entryPicked && entryPicked.returns === 'generator' && !entryPicked.generator_sample_rate) {
+        const note = {
+          en: 'This method yields chunks, so the return mode is set to generator. Fill call.generator_sample_rate (Hz) under engine settings: without it the host refuses to guess a sample rate.',
+          zh: '这个方法逐块产出，返回方式已设为 generator。请在引擎配置里填 call.generator_sample_rate（赫兹）：不填时宿主拒绝猜采样率。',
+        }
+        setScan((prev) => (prev ? { ...prev, notes: [...(prev.notes || []), note] } : prev))
+      }
       if (result) {
+        // 扫描认出来的开关要落成「合成参数」的行：扫描写回只写了 call.args 与 params.call_time，
+        //   那是命令行映射，界面上没有对应的一格，人于是对着一个空表发愁。
+        //   这里补的正是那批开关，走的是「把列出的参数一起加入」同一条路（addParamsFromScan），
+        //   类型、英文名、说明取自同一次扫描，因此不靠人再拖一遍才看得见。
+        //   收哪些：扫描结果按入口文件筛过的那一份，不是闭包捕获的旧 pool。
+        //   闭包的 params 是发起扫描那一刻 render 的值，await 后组件已 re-render，
+        //   但闭包里的 params 还是旧的。切形态后重扫时，旧 pool 是上一形态的全部参数
+        //   （cli 的 165 条），把它们写进 parameters 就是那 100 多行的来源。
+        //   已有且人改过的行一律不动（中文名或说明被人填过就算改过）；
+        //   纯扫描生成、本次没扫到的旧行要清掉：那是上一形态留下的参数，
+        //   只加不删的话它们会永远躺在表里，越积越多。
+        //   已被 bind 槽位与 role 槽位接管的开关由 isParamTaken 判掉，
+        //   它们各自在别处有格子，再做一格就是同一个开关摆两处。
+        const freshEntry = (j.entry && j.entry.file) || ''
+        const freshPool = scopeParams(pickedParams, freshEntry).params
+        const shaped = syncParamsFromScan(latest, freshPool)
         if (writeBack) onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, files, pickedPositionals) || result
+          const merged = fillFor(base.call || null) || result
+          // 参数行基于最新名片再算一次：等结果期间使用者可能自己加过行。
+          const rows = syncParamsFromScan(base, freshPool)
+          // 入口、返回方式、绑定、构造参数都由 fillFor 按形态填好了，这里只取结果。
           const next = { ...base, call: merged.call }
+          if (rows.added.length || rows.removed.length) next.parameters = rows.manifest.parameters
           // 参数白名单：host 只把 params.call_time 里的键交给引擎，两个名单缺一个
           //   都会在启动前拒收整张名片（load_time 缺了 / 参数未接入命令行）。
-          //   写了 parameters 的新版名片，params 是平台派生的，不能自己写一份。
-          if (base.parameters === undefined && merged.call) {
+          //   写了 parameters 的新版名片，params 是平台派生的，不能自己写一份；
+          //   这一趟刚落了参数行也算写了新版，同样不能再留一份 params
+          //   （两份并存会被 parameterDeclaration 当场拒收）。
+          if (next.parameters === undefined && merged.call) {
             const params = { ...(base.params || {}) }
             const cur = Array.isArray(params.call_time) ? params.call_time : []
             const add = (merged.callTime || []).filter((k) => !cur.includes(k))
@@ -227,6 +307,18 @@ export default function ManifestPage ({
         // confidence 与 matched 同一趟扫描算出来，界面靠它把自动填值分成确定 / 推测两档。
         setAutofill({ matched: result.matched, argList: result.argList,
           notes: result.notes || [], confidence: result.confidence || null })
+        // 这一趟自动落进行里的开关，上游没写明类型的标成推测：中栏那一行的类型框描黄，
+        //   与拖入那条路同一套判定，徽标含义不因来路不同而变化。
+        if (shaped.added.length) {
+          setGuessed((prev) => {
+            const next = new Set(prev)
+            for (const name of shaped.added) {
+              const param = scanParamFor(name, params)
+              if (param && !param.kind_certain) next.add(name)
+            }
+            return next
+          })
+        }
       } else {
         setAutofill({ matched: null, argList: [], notes: [], confidence: null })
       }
@@ -292,7 +384,9 @@ export default function ManifestPage ({
             busy={busy} err={scanErr} />
         }
         center={
-          <div className="wz-stage-main-inner wz-stack">
+          <div className="wz-stage-main-inner">
+          <StepCard title={stepFrame.title} done={stepFrame.done} onClose={stepFrame.onClose}>
+            <div className="wz-stack">
             {/* 身份条在最上面：选引擎、扫描或读取、路径、保存，一行说完。 */}
             <EngineIdentity
               manifest={manifest || {}} onChange={onManifest}
@@ -300,6 +394,7 @@ export default function ManifestPage ({
               onScan={doScan} scanBusy={busy} scanned={!!scan}
               diag={diag} onSaved={onSaved}
               onEngineTarget={onPickEngineTarget}
+              dirs={dirs} onDirsReload={onDirsReload}
               viewSwitch={
                 <div className="wz-view-switch">
                   <button type="button"
@@ -335,6 +430,12 @@ export default function ManifestPage ({
                 positionals={scan && scan.positionals}
                 scanned={shapeSource}
                 poolParams={params}
+                // 扫描按钮挂在「调用方式」旁边：它决定的就是这一格与入口那一格。
+                //   只在这台引擎确实有名片、且表单里已经有内容之后出现：
+                //   没有名片时扫了没处放（那种情况身份条上是「新建名片」）。
+                canScan={canScan}
+                scanBusy={busy}
+                onScan={(opts) => doScan(opts)}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (
@@ -350,6 +451,8 @@ export default function ManifestPage ({
               <div className="msg msg-danger">{err}</div>
             )}
             <ModeCards manifest={manifest} onDone={onSaved} />
+            </div>
+          </StepCard>
           </div>
         }
         right={
