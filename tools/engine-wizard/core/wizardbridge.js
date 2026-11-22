@@ -1463,8 +1463,8 @@ function scanScriptDownloadCommands (dir) {
  * 找不到对应可执行文件时返回 null（界面只展示命令，不硬跑）。
  */
 function downloadCmdArgv (entry, root, id) {
-  // 执行环境统一用平台根（Owner 2026-11-23 裁决）：平台根备有 hf / modelscope，
-  //   所有引擎的下载走同一个环境，落点由命令参数决定（--local_dir / local_dir）。
+  // 执行环境统一用平台根：平台根备有 hf / modelscope，所有引擎的下载走同一个环境；
+  //   落点由命令参数决定（--local_dir / local_dir）。
   const { platformPythonAbs } = require('./envDetect')
   const py = platformPythonAbs(root)
   if (!py || !fs.existsSync(py)) return null

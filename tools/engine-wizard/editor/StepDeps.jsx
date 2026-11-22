@@ -181,8 +181,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
     ...(Array.isArray(saved?.skipped) ? saved.skipped : []),
     ...platformSkipped,
   ])]))
-  // 计划是异步拉回来的：初始化那一刻 plan 可能还没到（或来自旧缓存）。
-  //   计划到手后再把「本机不装」并进来一次；此后使用者点掉就点掉了，不反复加回。
+  // 计划是异步拉取的：初始化那一刻 plan 可能还没到（或来自旧缓存）。
+  //   计划到手后再把「本机不装」并进来一次；此后使用者点掉就取消，不反复加回。
   const platformSkippedKey = (plan && Array.isArray(plan.platformSkipped)) ? plan.platformSkipped.join('\n') : ''
   React.useEffect(() => {
     if (!platformSkippedKey) return

@@ -1,7 +1,7 @@
 // 下载命令的跨平台形状守卫（双平台矩阵各跑一次）。
 //
 // 为什么要有这条：第 3 步的下载命令在本地（Windows）生成，换到 Linux 上
-// 形状必须一起对——解释器路径（Scripts\python.exe vs bin/python）、
+// 形状必须一起对：解释器路径（Scripts\python.exe vs bin/python）、
 // 可执行后缀（.exe vs 无）。这类差异在 Windows 上永远测不出来，
 // 只能靠另一个平台的 CI 守。
 const test = require('node:test')
