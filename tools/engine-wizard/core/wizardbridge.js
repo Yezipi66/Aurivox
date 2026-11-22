@@ -1396,6 +1396,104 @@ function scanDocDownloadCommands (dir) {
   return out
 }
 
+// 下载脚本的关键点（通用于任何引擎，不针对某一台）：
+//   ① 从下载库 import 了名字里带 download 的函数（from modelscope import snapshot_download …）
+//   ② 或 import 了下载库本身后按库名调用（modelscope.snapshot_download(…) / huggingface_hub.…）
+//   ③ 调用里带仓库字面量（org/repo）与（可选）落点
+// 只读 README 与 .py：README 是上游教使用者怎么下，.py 是引擎自己的下载代码。
+const DOWNLOAD_IMPORT_RE = /\bfrom\s+(modelscope|huggingface_hub)(?:\.[\w.]+)?\s+import\s+([^\n)]+)/g
+const DOWNLOAD_MODULE_RE = /\bimport\s+(modelscope|huggingface_hub)(?:\.[\w.]+)?/g
+const DOWNLOAD_CALL_RE = /\b([A-Za-z_][\w]*download[\w]*)\s*\(/g
+
+function scanScriptDownloadCommands (dir) {
+  const out = []
+  const seen = new Set()
+  const push = (e, where) => {
+    if (!e || !e.repo || seen.has(e.raw)) return
+    seen.add(e.raw)
+    out.push({ ...e, where })
+  }
+  // README：上游教使用者怎么下的命令块
+  for (const f of ['README.md', 'readme.md', 'README.MD']) {
+    let text
+    try { text = fs.readFileSync(path.join(dir, f), 'utf8') } catch { continue }
+    for (const c of extractDownloadCommands(text)) push(c, f)
+  }
+  // .py：只认「import 了下载库」的文件里的下载调用（没 import 的调用不归属任何库）
+  const { findPyFiles } = require('./pyFiles')
+  const files = findPyFiles(dir, {
+    skipDir: (n) => n === '.venv' || n === 'node_modules' || n === '__pycache__' || n.startsWith('.'),
+    skipFile: (n) => /^(?:__init__|conftest)\.py$/i.test(n),
+  })
+  for (const rel of files) {
+    let text
+    try { text = fs.readFileSync(path.join(dir, ...rel.split('/')), 'utf8') } catch { continue }
+    if (text.length > 256 * 1024) continue
+    const nameLib = {}
+    for (const m of text.matchAll(DOWNLOAD_IMPORT_RE)) {
+      for (const part of m[2].split(',')) {
+        const nm = String(part).trim().split(/\s+as\s+/)[0].trim()
+        if (nm && /download/i.test(nm)) nameLib[nm] = m[1]
+      }
+    }
+    const mods = new Set([...text.matchAll(DOWNLOAD_MODULE_RE)].map((m) => m[1]))
+    if (!Object.keys(nameLib).length && !mods.size) continue
+    for (const m of text.matchAll(DOWNLOAD_CALL_RE)) {
+      const name = m[1]
+      let lib = nameLib[name]
+      if (!lib) {
+        const pre = text.slice(Math.max(0, m.index - 60), m.index)
+        if (mods.has('modelscope') && /\bmodelscope(?:\.[\w.]+)?\.$/.test(pre)) lib = 'modelscope'
+        else if (mods.has('huggingface_hub') && /\bhuggingface_hub(?:\.[\w.]+)?\.$/.test(pre)) lib = 'huggingface_hub'
+      }
+      if (!lib) continue
+      const frag = text.slice(m.index, Math.min(text.length, m.index + 400))
+      const cmd = parseDownloadCmd(frag, text)
+      if (cmd) push({ ...cmd, lib, name }, rel)
+    }
+  }
+  return out
+}
+
+/**
+ * 把一条下载命令转义成「本机可执行」：用引擎自己的环境（第 2 步装好的 venv）。
+ *   modelscope download → <venv>/Scripts/modelscope.exe download
+ *   hf download        → <venv>/Scripts/hf.exe download
+ *   snapshot_download  → <引擎python> -c "from <lib> import <name>; <name>(...)"
+ * 找不到对应可执行文件时返回 null（界面只展示命令，不硬跑）。
+ */
+function downloadCmdArgv (entry, root, id) {
+  // 执行环境统一用平台根（Owner 2026-11-23 裁决）：平台根备有 hf / modelscope，
+  //   所有引擎的下载走同一个环境，落点由命令参数决定（--local_dir / local_dir）。
+  const { platformPythonAbs } = require('./envDetect')
+  const py = platformPythonAbs(root)
+  if (!py || !fs.existsSync(py)) return null
+  const win = process.platform === 'win32'
+  const scripts = win ? path.join(root, 'venv', 'Scripts') : path.join(root, 'venv', 'bin')
+  const pick = (names) => {
+    for (const n of names) {
+      const p = path.join(scripts, n)
+      if (fs.existsSync(p)) return p
+    }
+    return null
+  }
+  const fallbackDir = path.join('pretrained_models', String(entry.repo).split('/').pop())
+  const localDir = entry.dir || fallbackDir
+  if (entry.tool === 'modelscope') {
+    const bin = pick(['modelscope.exe', 'modelscope']) || py
+    return [bin, 'download', '--model', entry.repo, '--local_dir', localDir]
+  }
+  if (entry.tool === 'hf') {
+    const bin = pick(['hf.exe', 'huggingface-cli.exe', 'hf', 'huggingface-cli']) || py
+    return [bin, 'download', entry.repo, '--local-dir', localDir]
+  }
+  const lib = entry.source === 'hf' ? 'huggingface_hub' : entry.source === 'modelscope' ? 'modelscope' : entry.lib
+  const name = entry.name || 'snapshot_download'
+  if (!lib) return null
+  const code = `from ${lib} import ${name}; ${name}(${JSON.stringify(entry.repo)}, local_dir=${JSON.stringify(localDir)})`
+  return [py, '-c', code]
+}
+
 /** 按优先级列出这一台引擎自带的下载入口；GET 与 POST 用同一份构造，避免两边漂移。 */
 function buildEngineDownloadEntries (root, id) {
   const dir = path.join(root, 'engines', id)
@@ -1488,6 +1586,31 @@ function buildEngineDownloadEntries (root, id) {
   //   没有进度、没有落盘清单，几十亿字节进了 HF 缓存，界面上还是一片空白。
   //   现在改由 runtimeRepoRows 把它们交给「模型仓库」那一栏：列文件、按文件下到权重
   //   目录、进度条与断点续传都是现成的一套，界面也就能先说清仓库里有什么。
+  // 下载脚本（README + .py）里认出来的仓库命令：来源与仓库都取自上游文本，
+  //   平台只按本机环境把它转义成可执行命令（找不到可执行文件就只展示，不硬跑）。
+  for (const c of scanScriptDownloadCommands(dir)) {
+    const argv = downloadCmdArgv(c, root, id)
+    const src = c.source || c.lib
+    const toolZh = src === 'modelscope' ? '魔搭' : src === 'hf' ? 'HuggingFace' : '下载库'
+    const toolEn = src === 'modelscope' ? 'ModelScope' : src === 'hf' ? 'HuggingFace' : 'download lib'
+    entries.push({
+      key: 'cmd:' + c.where + ':' + c.raw,
+      kind: 'cmd',
+      priority: 2,
+      labelZh: `${toolZh}仓库 ${c.repo}`,
+      labelEn: `${toolEn} repo ${c.repo}`,
+      repo: c.repo,
+      tool: c.tool,
+      source: c.source,
+      dir: c.dir || null,
+      argv,
+      needs_review: true,
+      noteZh: `来自 ${c.where} 的下载命令`
+        + (argv ? '；已按引擎环境转写成可执行命令。' : '；引擎环境里找不到对应可执行文件，仅展示。'),
+      noteEn: `Download command from ${c.where}`
+        + (argv ? '; rewritten against the engine environment.' : '; no matching executable in the engine environment, command only.'),
+    })
+  }
   return entries.sort((a, b) => a.priority - b.priority || a.key.localeCompare(b.key))
 }
 

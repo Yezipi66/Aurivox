@@ -46,12 +46,19 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     if (!id) return
     setBusy(true); setErr(null)
     try {
-      // 第 1 步没有探测结果时仍然可以手填模型仓库页或文件直链，
-      // 因此这里只取已有数据，不把探测缺失当成整步不可用的错误。
+      // 重新检查 = 重新抓一遍来源（引擎自带入口 / 模型仓库 / 运行期资源），
+      //   不是拿上次缓存的清单糊一遍。抓完再算完成状态（由按钮的 onChange 触发）。
+      const r = await fetch(`/wizard/download-entries?id=${encodeURIComponent(id)}`)
+      const j = await r.json().catch(() => null)
+      if (j && j.ok) {
+        setEngineEntries(Array.isArray(j.entries) ? j.entries : [])
+        setRuntimeHints(Array.isArray(j.runtime_hints) ? j.runtime_hints : [])
+        setRuntimeRepos(Array.isArray(j.repos) ? j.repos : [])
+      }
+      // 上游文档里的下载命令来自第 1 步的探测缓存，这里原样铺底（不重新探测）。
       const cmds = (probe && probe.downloader_cmds) || []
       const scripts = (probe && probe.downloader) || []
       setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
-      // 清空之前列出的仓库文件
       setManifest(null)
       setListErrors({})
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
@@ -212,6 +219,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const [engineEntries, setEngineEntries] = React.useState([])
   const [entryBusy, setEntryBusy] = React.useState(null)
   const [entryOut, setEntryOut] = React.useState([])
+  // 命令默认一行（超长省略），点「展开」才看全。命令里有解释器绝对路径，很长。
+  const [expandedCmds, setExpandedCmds] = React.useState(() => new Set())
+  const toggleCmdExpand = (k) => setExpandedCmds((s) => {
+    const n = new Set(s)
+    if (n.has(k)) n.delete(k); else n.add(k)
+    return n
+  })
   const entryAbort = React.useRef(null)
   React.useEffect(() => {
     if (!id) { setEngineEntries([]); setRuntimeHints([]); setRuntimeRepos([]); return undefined }
@@ -881,12 +895,23 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                 )}
                 {engineEntries.map((e) => {
                   const busy = entryBusy === e.key
+                  const expanded = expandedCmds.has(e.key)
                   return (
                     <div key={e.key} style={{ marginTop: 6 }}>
                       <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <pre className="rc-cmd-body" style={{ flex: 1, margin: 0, minWidth: 180 }}>
+                        <pre className="rc-cmd-body" style={{
+                          flex: 1, margin: 0, minWidth: 180,
+                          whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+                          overflow: expanded ? 'visible' : 'hidden',
+                          textOverflow: expanded ? 'clip' : 'ellipsis',
+                          wordBreak: 'break-all',
+                        }}>
                           {(e.argv || []).map(String).join(' ')}
                         </pre>
+                        <button className="btn btn-sm" type="button"
+                          onClick={() => toggleCmdExpand(e.key)}>
+                          {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
+                        </button>
                         {e.already_deployed && (
                           <span className="badge badge-warn"
                             title={lang === 'zh' ? e.noteZh : e.noteEn}>
