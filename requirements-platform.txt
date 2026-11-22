@@ -63,3 +63,9 @@ packaging==26.2
 # ⚠ 只在用户真的要下模型时才用得上；留着是因为它只有 8MB，
 #   而删掉它的收益不到 1MB，风险却多一个「模型下不动」。
 hf_transfer==0.1.9
+
+# huggingface_hub —— 第 3 步下载模型统一在平台环境里执行（Owner 2026-11-23 裁决）
+huggingface_hub==0.36.2
+
+# modelscope —— 同上；魔搭仓库的下载库
+modelscope==1.20.0
