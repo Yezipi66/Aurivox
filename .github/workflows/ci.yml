@@ -92,6 +92,9 @@ jobs:
           fi
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install uv
+          # 平台自己的依赖（requirements-platform.txt）：第 3 步下载统一走平台环境，
+          #   需要 hf / modelscope。CI 与本地同步，否则「本地能跑、CI 跑不了」。
+          "$PY" -m pip install -r requirements-platform.txt
           # 打印出来：解释器到底在哪儿、能不能跑，
           #   免得测试红的时候还要猜是哪一步没成。
           echo "解释器: $PY"
