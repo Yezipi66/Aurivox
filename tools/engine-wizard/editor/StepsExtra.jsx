@@ -396,7 +396,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
           padding: 'var(--sp-8) 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
         <pre className="rc-cmd-body" style={{
-          flex: 1, margin: 0, minWidth: 180,
+          flex: 1, margin: 0, padding: 0, minWidth: 180,
           whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
           overflow: expanded ? 'visible' : 'hidden',
           textOverflow: expanded ? 'clip' : 'ellipsis',
