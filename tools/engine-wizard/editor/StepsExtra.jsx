@@ -161,6 +161,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   // 两块来源列表可折叠（标题保留、子项收起），默认展开。
   const [builtinOpen, setBuiltinOpen] = React.useState(true)
   const [scannedOpen, setScannedOpen] = React.useState(true)
+  const [reposOpen, setReposOpen] = React.useState(true)
   const [tokenDialog, setTokenDialog] = React.useState(null)
   React.useEffect(() => {
     fetch('/wizard/hf-token')
@@ -1021,20 +1022,32 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   </div>
                 )}
                 {runtimeRepos.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="field-hint" style={{ marginTop: 0, marginBottom: 2 }}>
-                      {t('Repos named in the source', '源码里写明的仓库')}
+                  <div style={{ marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" role="button" tabIndex={0}
+                      onClick={() => setReposOpen(!reposOpen)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setReposOpen(!reposOpen) }
+                      }}
+                      aria-expanded={reposOpen}
+                      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>{t('Repos named in the source', '源码里写明的仓库')}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="badge badge-neutral">{runtimeRepos.length} {t('items', '项')}</span>
+                        <span className="field-hint" style={{ marginTop: 0 }}>{reposOpen ? '▾' : '▸'}</span>
+                      </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px' }}>
-                      {runtimeRepos.map((r) => (
-                        <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
-                          <code>{r.repo}</code>
-                          <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
-                            {r.file}:{r.line}
-                          </span>
-                        </React.Fragment>
-                      ))}
-                    </div>
+                    {reposOpen && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px', marginTop: 6 }}>
+                        {runtimeRepos.map((r) => (
+                          <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
+                            <code>{r.repo}</code>
+                            <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
+                              {r.file}:{r.line}
+                            </span>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {entryOut.length > 0 && (
