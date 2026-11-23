@@ -1929,7 +1929,7 @@ function handleFsBrowse (req, res) {
     ok: true,
     isDriveList: false,
     path: abs,
-    parent: parent && parent !== abs ? parent : null,
+    parent,
     dirs,
     error,
   })
