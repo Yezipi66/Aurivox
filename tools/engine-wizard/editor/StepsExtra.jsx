@@ -377,6 +377,66 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   只数命令的话，扫到两个仓库、页签仍写 0，看着像什么都没找到。
   const engineProvided = engineEntries.length + runtimeRepos.length
 
+  // 「引擎自带」与「扫出来的下载命令」是两块平行的东西：前者是既有实现（脚本/子命令），
+  //   后者是平台扫文档/源码得到的下载命令（按本机环境转写）。两块各自成组，互不所属。
+  const builtinEntries = engineEntries.filter((e) => e.kind !== 'cmd')
+  const scannedEntries = engineEntries.filter((e) => e.kind === 'cmd')
+
+  // 一组条目按来源文件分组：同一个文件里提出来的命令放一起，不逐条重复「来自 X」。
+  const renderEntryGroups = (list) => {
+    const groups = []
+    const byWhere = new Map()
+    for (const e of list) {
+      const k = e.where || ''
+      if (!byWhere.has(k)) { byWhere.set(k, []); groups.push([k, byWhere.get(k)]) }
+      byWhere.get(k).push(e)
+    }
+    return groups.map(([where, items]) => (
+      <div key={where || 'other'} style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+        {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
+        {items.map((e, i) => {
+          const busy = entryBusy === e.key
+          const expanded = expandedCmds.has(e.key)
+          return (
+            <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
+              marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
+              borderTop: i ? '1px solid var(--border)' : 'none' }}>
+              <pre className="rc-cmd-body" style={{
+                flex: 1, margin: 0, minWidth: 180,
+                whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+                overflow: expanded ? 'visible' : 'hidden',
+                textOverflow: expanded ? 'clip' : 'ellipsis',
+                wordBreak: 'break-all',
+              }}>
+                {(e.argv || []).map(String).join(' ')}
+              </pre>
+              <button className="btn btn-sm" type="button"
+                onClick={() => toggleCmdExpand(e.key)}>
+                {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
+              </button>
+              {e.already_deployed && (
+                <span className="badge badge-warn"
+                  title={lang === 'zh' ? e.noteZh : e.noteEn}>
+                  {t('possibly already deployed in step 2', '第 2 步可能已部署')}
+                </span>
+              )}
+              <button className="btn btn-sm btn-primary" type="button"
+                disabled={!!entryBusy || !id}
+                onClick={() => runEngineEntry(e)}>
+                {busy ? t('Running', '运行中') : t('Run', '运行')}
+              </button>
+              {busy && (
+                <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
+                  {t('Stop', '停止')}
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    ))
+  }
+
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
   //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
   const sizeLabel = (n) => {
@@ -906,70 +966,26 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             }}>
             {sourceTab === 'engine' && (
               <>
-                <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('What the engine itself declares: a download command it ships can be run here; the repos its source names are listed below and already in the download list.',
-                    '引擎自己声明的权重来源：自带下载命令可以直接运行；源码里写明的仓库列在下面，并已加入下载清单。')}
-                </div>
+                {builtinEntries.length > 0 && (
+                  <div className="field-hint" style={{ marginTop: 0 }}>
+                    {t('Weights the engine declares: a bundled download command can be run directly.',
+                      '引擎声明的权重来源：自带下载命令可以直接运行。')}
+                  </div>
+                )}
+                {scannedEntries.length > 0 && (
+                  <div className="field-hint" style={{ marginTop: 'var(--sp-8)' }}>
+                    {t('Download commands declared by the engine, rewritten for this machine (platform environment).',
+                      '引擎声明的下载命令；已按本机环境转写成可执行命令。')}
+                  </div>
+                )}
                 {engineProvided === 0 && (
                   <div className="msg msg-info" style={{ marginTop: 6 }}>
                     {t('Nothing on disk: no download command, and no weight repo in the source. Add a model repo page or a direct file link above.',
                       '盘上没有自带下载命令，源码里也没找到权重仓库。可在上方切到「模型仓库」或「文件直链」手动添加。')}
                   </div>
                 )}
-                {(() => {
-                  // 按来源文件分组：同一个文件里提出来的命令放一起，不逐条重复「来自 X」。
-                  const groups = []
-                  const byWhere = new Map()
-                  for (const e of engineEntries) {
-                    const k = e.where || ''
-                    if (!byWhere.has(k)) { byWhere.set(k, []); groups.push([k, byWhere.get(k)]) }
-                    byWhere.get(k).push(e)
-                  }
-                  return groups.map(([where, list]) => (
-                    <div key={where || 'other'} style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
-                      {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
-                      {list.map((e, i) => {
-                        const busy = entryBusy === e.key
-                        const expanded = expandedCmds.has(e.key)
-                        return (
-                          <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
-                            marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
-                            borderTop: i ? '1px solid var(--border)' : 'none' }}>
-                            <pre className="rc-cmd-body" style={{
-                              flex: 1, margin: 0, minWidth: 180,
-                              whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
-                              overflow: expanded ? 'visible' : 'hidden',
-                              textOverflow: expanded ? 'clip' : 'ellipsis',
-                              wordBreak: 'break-all',
-                            }}>
-                              {(e.argv || []).map(String).join(' ')}
-                            </pre>
-                            <button className="btn btn-sm" type="button"
-                              onClick={() => toggleCmdExpand(e.key)}>
-                              {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
-                            </button>
-                            {e.already_deployed && (
-                              <span className="badge badge-warn"
-                                title={lang === 'zh' ? e.noteZh : e.noteEn}>
-                                {t('possibly already deployed in step 2', '第 2 步可能已部署')}
-                              </span>
-                            )}
-                            <button className="btn btn-sm btn-primary" type="button"
-                              disabled={!!entryBusy || !id}
-                              onClick={() => runEngineEntry(e)}>
-                              {busy ? t('Running', '运行中') : t('Run', '运行')}
-                            </button>
-                            {busy && (
-                              <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
-                                {t('Stop', '停止')}
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))
-                })()}
+                {renderEntryGroups(builtinEntries)}
+                {renderEntryGroups(scannedEntries)}
                 {runtimeRepos.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div className="field-hint" style={{ marginTop: 0, marginBottom: 2 }}>
