@@ -341,13 +341,18 @@ async function runAudioCheckRaw (id, opts = {}) {
       errorZh: `语音合成校验所需的本地宿主未能启动（阶段：${hosted.stage}）。`
         + `${rawZh ? `宿主报告的原文：${rawZh}` : ''}`
         + `${(stderr || stdout) ? ' 宿主进程的输出见下方。' : ''}`,
-      cause: 'The host process did not start, or started and exited immediately',
-      causeZh: '宿主的进程没有起来，或者起来后立即退出',
-      hint: 'Read the host output below: "No module named" means a missing dependency (back to step 2); '
-        + 'a weights-path error means checking the weights folder in step 3; '
-        + 'torch errors usually mean the device or the version is wrong.',
-      hintZh: '看下方宿主输出：No module named 是缺依赖（回到第 2 步），'
-        + '权重路径报错就核对第 3 步的权重目录，torch 相关报错通常是设备或版本不对。',
+      cause: 'The host process failed to start, or exited immediately after starting',
+      causeZh: '宿主进程启动失败，或启动后立即退出',
+      hint: 'Match the host output below to an action: '
+        + '"No module named" → go back to step 2 and install the missing dependency; '
+        + 'a weights/path error → check the storage location in step 3; '
+        + 'a torch/device error → go back to step 2 and change the Torch backend or version. '
+        + 'If none matches, send the output below to the maintainer.',
+      hintZh: '按下方宿主输出选择操作：'
+        + '出现 No module named → 回第 2 步补装缺失的依赖；'
+        + '出现权重或路径报错 → 核对第 3 步的存放位置；'
+        + '出现 torch 或设备报错 → 回第 2 步更换 Torch 后端或版本。'
+        + '都不匹配就把下方输出发给维护者。',
       host_stdout: stdout || null,
       host_stderr: stderr || null }
   }
