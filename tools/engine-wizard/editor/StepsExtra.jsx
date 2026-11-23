@@ -907,8 +907,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('The engine\'s own download command, as written in its docs/source. Pointing Run rewrites it against this machine.',
-                    '引擎自己声明的下载命令原文（摘自文档/源码）；点「运行」时平台按本机环境转写成可执行命令。')}
+                  {t('What the engine itself declares: a download command it ships can be run here; the repos its source names are listed below and already in the download list.',
+                    '引擎自己声明的权重来源：自带下载命令可以直接运行；源码里写明的仓库列在下面，并已加入下载清单。')}
                 </div>
                 {engineProvided === 0 && (
                   <div className="msg msg-info" style={{ marginTop: 6 }}>
@@ -942,7 +942,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                               textOverflow: expanded ? 'clip' : 'ellipsis',
                               wordBreak: 'break-all',
                             }}>
-                              {e.raw || (e.argv || []).map(String).join(' ')}
+                              {(e.argv || []).map(String).join(' ')}
                             </pre>
                             <button className="btn btn-sm" type="button"
                               onClick={() => toggleCmdExpand(e.key)}>
