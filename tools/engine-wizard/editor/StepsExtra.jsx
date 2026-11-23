@@ -158,6 +158,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   与第 4 步名片的 registration.runtime.checkpoints 由后端同一条链取值。
   const [dirValue, setDirValue] = React.useState('')
   const [dirBusy, setDirBusy] = React.useState(false)
+  // 两块来源列表可折叠（标题保留、子项收起），默认展开。
+  const [builtinOpen, setBuiltinOpen] = React.useState(true)
+  const [scannedOpen, setScannedOpen] = React.useState(true)
   const [tokenDialog, setTokenDialog] = React.useState(null)
   React.useEffect(() => {
     fetch('/wizard/hf-token')
