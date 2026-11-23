@@ -76,3 +76,12 @@ test('快照 downloadDir 为空时视为未设置', () => {
   writeSnapshot(root, 'demo', '')
   assert.equal(weightsDirFor(root, 'demo', null), 'engines/demo/checkpoints')
 })
+
+// ⑤ 两种记法：手动改记全局（项目根相对），自动写盘记相对（引擎内），读取都要还原
+test('手动记全局、自动记相对，读取结果一致', () => {
+  const root = mkdtempRoot()
+  writeSnapshot(root, 'demo', 'engines/demo/weights/s2')
+  assert.equal(weightsDirFor(root, 'demo', null), 'engines/demo/weights/s2')
+  writeSnapshot(root, 'demo', 'weights/s2')
+  assert.equal(weightsDirFor(root, 'demo', null), 'engines/demo/weights/s2')
+})
