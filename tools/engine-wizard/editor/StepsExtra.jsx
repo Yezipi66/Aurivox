@@ -386,60 +386,48 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const builtinEntries = engineEntries.filter((e) => e.kind !== 'cmd')
   const scannedEntries = engineEntries.filter((e) => e.kind === 'cmd')
 
-  // 一组条目按来源文件分组：同一个文件里提出来的命令放一起，不逐条重复「来自 X」。
-  //   boxed：独立成块时套 BOX；已经在外层 BOX 里时用细线分组，避免框套框。
-  const renderEntryGroups = (list, boxed = true, prefix = '') => {
-    const groups = []
-    const byWhere = new Map()
-    for (const e of list) {
-      const k = e.where || ''
-      if (!byWhere.has(k)) { byWhere.set(k, []); groups.push([k, byWhere.get(k)]) }
-      byWhere.get(k).push(e)
-    }
-    return groups.map(([where, items]) => (
-      <div key={prefix + (where || 'other')} style={{ marginTop: 'var(--sp-8)', paddingTop: 'var(--sp-8)', borderTop: '1px solid var(--border)' }}>
-      {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
-      {items.map((e, i) => {
-      const busy = entryBusy === e.key
-      const expanded = expandedCmds.has(e.key)
-      return (
-      <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
-        padding: 'var(--sp-8) 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
-              <pre className="rc-cmd-body" style={{
-                flex: 1, margin: 0, minWidth: 180,
-                whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
-                overflow: expanded ? 'visible' : 'hidden',
-                textOverflow: expanded ? 'clip' : 'ellipsis',
-                wordBreak: 'break-all',
-              }}>
-                {(e.argv || []).map(String).join(' ')}
-              </pre>
-              <button className="btn btn-sm" type="button"
-                onClick={() => toggleCmdExpand(e.key)}>
-                {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
-              </button>
-              {e.already_deployed && (
-                <span className="badge badge-warn"
-                  title={lang === 'zh' ? e.noteZh : e.noteEn}>
-                  {t('possibly already deployed in step 2', '第 2 步可能已部署')}
-                </span>
-              )}
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={!!entryBusy || !id}
-                onClick={() => runEngineEntry(e)}>
-                {busy ? t('Running', '运行中') : t('Run', '运行')}
-              </button>
-              {busy && (
-                <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
-                  {t('Stop', '停止')}
-                </button>
-              )}
-            </div>
-          )
-        })}
+  // 命令子项：与「源码里写明的仓库」同款行样式（一行一项、同一 padding、细线分隔）。
+  //   来源（文件:行）作行内 hint，不再单开分组标题，避免多出一层分隔线。
+  const renderEntryRows = (list, prefix = '') => list.map((e, i) => {
+    const busy = entryBusy === e.key
+    const expanded = expandedCmds.has(e.key)
+    return (
+      <div key={prefix + e.key}
+        style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
+          padding: 'var(--sp-8) 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+        <pre className="rc-cmd-body" style={{
+          flex: 1, margin: 0, minWidth: 180,
+          whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+          overflow: expanded ? 'visible' : 'hidden',
+          textOverflow: expanded ? 'clip' : 'ellipsis',
+          wordBreak: 'break-all',
+        }}>
+          {(e.argv || []).map(String).join(' ')}
+        </pre>
+        {e.where && <span className="field-hint" style={{ margin: 0 }}>{e.where}</span>}
+        <button className="btn btn-sm" type="button"
+          onClick={() => toggleCmdExpand(e.key)}>
+          {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
+        </button>
+        {e.already_deployed && (
+          <span className="badge badge-warn"
+            title={lang === 'zh' ? e.noteZh : e.noteEn}>
+            {t('possibly already deployed in step 2', '第 2 步可能已部署')}
+          </span>
+        )}
+        <button className="btn btn-sm btn-primary" type="button"
+          disabled={!!entryBusy || !id}
+          onClick={() => runEngineEntry(e)}>
+          {busy ? t('Running', '运行中') : t('Run', '运行')}
+        </button>
+        {busy && (
+          <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
+            {t('Stop', '停止')}
+          </button>
+        )}
       </div>
-    ))
-  }
+    )
+  })
 
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
   //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
@@ -987,7 +975,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {builtinOpen && (
-                      <div style={{ ...BOX, width: '100%', boxSizing: 'border-box', marginTop: 6 }}>{renderEntryGroups(builtinEntries, false, 'b:')}</div>
+                      <div style={{ ...BOX, width: '100%', boxSizing: 'border-box', marginTop: 6 }}>{renderEntryRows(builtinEntries, 'b:')}</div>
                     )}
                   </div>
                 )}
@@ -1009,7 +997,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {scannedOpen && (
-                      <div style={{ ...BOX, marginTop: 6 }}>{renderEntryGroups(scannedEntries, false, 's:')}</div>
+                      <div style={{ ...BOX, marginTop: 6 }}>{renderEntryRows(scannedEntries, 's:')}</div>
                     )}
                   </div>
                 )}
