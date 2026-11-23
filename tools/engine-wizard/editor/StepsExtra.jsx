@@ -158,9 +158,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   与第 4 步名片的 registration.runtime.checkpoints 由后端同一条链取值。
   const [dirValue, setDirValue] = React.useState('')
   const [dirBusy, setDirBusy] = React.useState(false)
-  // 两块来源列表默认展开，点标题折叠/收起（用项目现成的 .collapsible token）。
-  const [builtinOpen, setBuiltinOpen] = React.useState(true)
-  const [scannedOpen, setScannedOpen] = React.useState(true)
   const [tokenDialog, setTokenDialog] = React.useState(null)
   React.useEffect(() => {
     fetch('/wizard/hf-token')
@@ -973,31 +970,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 {builtinEntries.length > 0 && (
-                  <div className="collapsible wz-collapse-panel" style={{ marginTop: 'var(--sp-8)' }}>
-                    <div className="collapsible-hdr" onClick={() => setBuiltinOpen(!builtinOpen)}>
-                      <span>{t('Weights the engine declares: a bundled download command can be run directly.',
-                        '引擎声明的权重来源：自带下载命令可以直接运行。')}</span>
-                      <span className="field-hint" style={{ marginTop: 0 }}>{builtinOpen ? '▾' : '▸'}</span>
+                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+                      {t('Weights the engine declares: a bundled download command can be run directly.',
+                        '引擎声明的权重来源：自带下载命令可以直接运行。')}
                     </div>
-                    {builtinOpen && (
-                      <div className="collapsible-body">
-                        {renderEntryGroups(builtinEntries, false, 'b:')}
-                      </div>
-                    )}
+                    {renderEntryGroups(builtinEntries, false, 'b:')}
                   </div>
                 )}
                 {scannedEntries.length > 0 && (
-                  <div className="collapsible wz-collapse-panel" style={{ marginTop: 'var(--sp-8)' }}>
-                    <div className="collapsible-hdr" onClick={() => setScannedOpen(!scannedOpen)}>
-                      <span>{t('Download commands declared by the engine, rewritten for this machine (platform environment).',
-                        '引擎声明的下载命令；已按本机环境转写成可执行命令。')}</span>
-                      <span className="field-hint" style={{ marginTop: 0 }}>{scannedOpen ? '▾' : '▸'}</span>
+                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+                      {t('Download commands declared by the engine, rewritten for this machine (platform environment).',
+                        '引擎声明的下载命令；已按本机环境转写成可执行命令。')}
                     </div>
-                    {scannedOpen && (
-                      <div className="collapsible-body">
-                        {renderEntryGroups(scannedEntries, false, 's:')}
-                      </div>
-                    )}
+                    {renderEntryGroups(scannedEntries, false, 's:')}
                   </div>
                 )}
                 {engineProvided === 0 && (
