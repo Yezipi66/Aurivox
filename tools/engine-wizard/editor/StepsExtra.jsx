@@ -970,21 +970,45 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 {builtinEntries.length > 0 && (
-                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
-                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
-                      {t('Weights the engine declares: a bundled download command can be run directly.',
-                        '引擎声明的权重来源：自带下载命令可以直接运行。')}
+                  <div style={{ marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" role="button" tabIndex={0}
+                      onClick={() => setBuiltinOpen(!builtinOpen)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBuiltinOpen(!builtinOpen) }
+                      }}
+                      aria-expanded={builtinOpen}
+                      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>{t('Weights the engine declares: a bundled download command can be run directly.',
+                        '引擎声明的权重来源：自带下载命令可以直接运行。')}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="badge badge-neutral">{builtinEntries.length} {t('items', '项')}</span>
+                        <span className="field-hint" style={{ marginTop: 0 }}>{builtinOpen ? '▾' : '▸'}</span>
+                      </span>
                     </div>
-                    {renderEntryGroups(builtinEntries, false, 'b:')}
+                    {builtinOpen && (
+                      <div style={{ marginTop: 6 }}>{renderEntryGroups(builtinEntries, false, 'b:')}</div>
+                    )}
                   </div>
                 )}
                 {scannedEntries.length > 0 && (
-                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
-                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
-                      {t('Download commands declared by the engine, rewritten for this machine (platform environment).',
-                        '引擎声明的下载命令；已按本机环境转写成可执行命令。')}
+                  <div style={{ marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" role="button" tabIndex={0}
+                      onClick={() => setScannedOpen(!scannedOpen)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setScannedOpen(!scannedOpen) }
+                      }}
+                      aria-expanded={scannedOpen}
+                      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>{t('Download commands declared by the engine, rewritten for this machine (platform environment).',
+                        '引擎声明的下载命令；已按本机环境转写成可执行命令。')}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="badge badge-neutral">{scannedEntries.length} {t('items', '项')}</span>
+                        <span className="field-hint" style={{ marginTop: 0 }}>{scannedOpen ? '▾' : '▸'}</span>
+                      </span>
                     </div>
-                    {renderEntryGroups(scannedEntries, false, 's:')}
+                    {scannedOpen && (
+                      <div style={{ marginTop: 6 }}>{renderEntryGroups(scannedEntries, false, 's:')}</div>
+                    )}
                   </div>
                 )}
                 {engineProvided === 0 && (
