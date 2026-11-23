@@ -205,10 +205,12 @@ function diagnose (rawManifest) {
     }
   }
 
-  // 模型权重：写了权重放在哪（runtime.checkpoints），还得说引擎从哪个参数收它。
+  // 模型权重：引擎得说清从哪个参数收权重（call.weights）。落点不在这里声明，
+  //   由第 3 步快照给出（v0.1.2 起 runtime.checkpoints 弃用）。
   //   判据是平台的 weightsProblem（hostProfile.js），这里只把它翻成一条诊断。
   //   只在要过通用宿主时查：自带服务脚本的引擎，权重由它自己的启动参数决定。
   if (needsBind) {
+    // 落点来自第 3 步快照（不在名片里）：这里拿不到 appDir/id，就先不传 ⇒ 平台不知道落点时不拦。
     const wp = hostProfile().weightsProblem({ ...manifest, call: callObj })
     if (wp) {
       push('error', 'ENGINE_MANIFEST_INCOMPLETE',
