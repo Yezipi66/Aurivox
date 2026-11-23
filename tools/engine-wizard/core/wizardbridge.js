@@ -1744,12 +1744,22 @@ function handleDownloadDir (req, res) {
     const id = String((body && body.id) || '') || qid
     if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return }
     let v = String((body && body.dir) || '').trim()
+    // 系统对话框回传的是绝对路径：在引擎目录内就转成引擎内相对；不在则拒（存放位置必须在本引擎内）。
+    const root = (body && body.root) || rootOf(url)
+    const engAbs = path.join(root, 'engines', id)
+    if (path.isAbsolute(v)) {
+      const rel = path.relative(engAbs, v)
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+        json(res, 400, { ok: false, error: '所选目录不在本引擎目录下', errorZh: '所选目录不在本引擎目录下。' })
+        return
+      }
+      v = rel
+    }
     // 界面回传的是全局（engines/<id>/...），也接受引擎内相对；统一成引擎内相对再校验。
     const pfx = `engines/${id}/`
     if (v.startsWith(pfx)) v = v.slice(pfx.length)
     const rel = safeEngineRel(v)
     if (!rel) { json(res, 400, { ok: false, error: '存放位置不合法（需引擎目录内的相对路径）' }); return }
-    const root = (body && body.root) || rootOf(url)
     const dir = path.join(root, 'engines', id)
     fs.mkdirSync(dir, { recursive: true })
     // 手动改 → 记全局（项目根相对），与名片 runtime.checkpoints 同一种写法。
@@ -1876,6 +1886,31 @@ function writeDownloadSnapshot (root, id) {
     fs.writeFileSync(path.join(dir, 'wizard.json'),
       JSON.stringify({ downloadDir: engineRel, updatedAt: new Date().toISOString() }, null, 2))
   } catch { /* 快照写不了不影响下载 */ }
+}
+
+// POST /wizard/pick-dir  打开系统文件夹对话框（本地服务才能弹）
+//   浏览器给不了真实路径，所以由本地服务代弹：
+//   Windows → FolderBrowserDialog；macOS → choose folder；Linux → zenity。
+function handlePickDir (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/pick-dir')) return false
+  const { spawnSync } = require('node:child_process')
+  const cmd = process.platform === 'win32'
+    ? ['powershell.exe', '-NoProfile', '-Command',
+      "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+      + "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"]
+    : process.platform === 'darwin'
+      ? ['osascript', '-e', 'POSIX path of (choose folder)']
+      : ['zenity', '--file-selection', '--directory']
+  try {
+    const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', timeout: 120000 })
+    const out = String((r.stdout || '')).trim()
+    if (r.status !== 0 || !out) { json(res, 200, { ok: true, cancelled: true }); return true }
+    json(res, 200, { ok: true, path: out })
+  } catch (e) {
+    json(res, 500, { ok: false, error: String((e && e.message) || e) })
+  }
+  return true
 }
 
 // POST /wizard/run-script {id, file, args}  第 3 步：跑上游自带的下载脚本
@@ -3506,7 +3541,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadAttach, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
-  handleDownloadEntries, handleDownloadDir, handleEngineDownload,
+  handleDownloadEntries, handleDownloadDir, handlePickDir, handleEngineDownload,
   scanDocDownloadCommands,
   handleVerifyChecks, handleVerifyAudioStream, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
