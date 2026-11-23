@@ -1643,6 +1643,8 @@ function buildEngineDownloadEntries (root, id) {
       source: c.source,
       dir: c.dir || null,
       argv,
+      // 原文（引擎自己写的那条）：界面展示用；argv 只在点「运行」时用。
+      raw: c.raw || '',
       needs_review: true,
       noteZh: `来自 ${c.where} 的下载命令`
         + (argv ? '；已按引擎环境转写成可执行命令。' : '；引擎环境里找不到对应可执行文件，仅展示。'),
