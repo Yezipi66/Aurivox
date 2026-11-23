@@ -1023,7 +1023,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   </div>
                 )}
                 {runtimeRepos.length > 0 && (
-                  <div style={{ marginTop: 'var(--sp-8)' }}>
+                  <div style={{ marginTop: 'var(--sp-8)', ...((builtinEntries.length > 0 || scannedEntries.length > 0)
+                    ? { borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-8)' } : null) }}>
                     <div className="field-label" role="button" tabIndex={0}
                       onClick={() => setReposOpen(!reposOpen)}
                       onKeyDown={(e) => {
