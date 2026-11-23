@@ -1037,15 +1037,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {reposOpen && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px', marginTop: 6 }}>
-                        {runtimeRepos.map((r) => (
-                          <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
-                            <code>{r.repo}</code>
-                            <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
-                              {r.file}:{r.line}
-                            </span>
-                          </React.Fragment>
-                        ))}
+                      <div style={{ ...BOX, marginTop: 6 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px' }}>
+                          {runtimeRepos.map((r) => (
+                            <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
+                              <code>{r.repo}</code>
+                              <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
+                                {r.file}:{r.line}
+                              </span>
+                            </React.Fragment>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
