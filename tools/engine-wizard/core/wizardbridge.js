@@ -1914,7 +1914,7 @@ function handleFsBrowse (req, res) {
   const abs = path.resolve(p)
   // 与 assets 的 /api/fs/browse 同约定：parent === '' 表示「再向上就回盘符列表」，
   //   否则在盘符根目录会变成 null，向上按钮被禁用、再也回不到盘符。
-  const isDriveRoot = win && /^[A-Za-z]:[\\/]$/.test(abs)
+  const isDriveRoot = win && /^[A-Za-z]:.$/.test(abs)
   const dir = path.dirname(abs)
   const parent = isDriveRoot ? '' : (dir !== abs ? dir : null)
   let dirs = []
