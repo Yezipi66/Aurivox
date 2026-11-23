@@ -1020,8 +1020,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       '盘上没有自带下载命令，源码里也没找到权重仓库。可在上方切到「模型仓库」或「文件直链」手动添加。')}
                   </div>
                 )}
-                {renderEntryGroups(builtinEntries)}
-                {renderEntryGroups(scannedEntries)}
                 {runtimeRepos.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div className="field-hint" style={{ marginTop: 0, marginBottom: 2 }}>
