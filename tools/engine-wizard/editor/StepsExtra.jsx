@@ -59,7 +59,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       // 存放位置：后端按「名片 > 快照 > 默认」解析后回一个值，界面不自己算。
       const dr = await fetch(`/wizard/download-dir?id=${encodeURIComponent(id)}`)
       const dj = await dr.json().catch(() => null)
-      if (dj && dj.ok) setDirValue(dj.dir)
+      if (dj && dj.ok) { setDirValue(dj.dir); setDirOptions(Array.isArray(dj.options) ? dj.options : []) }
       // 上游文档里的下载命令来自第 1 步的探测缓存，这里原样铺底（不重新探测）。
       const cmds = (probe && probe.downloader_cmds) || []
       const scripts = (probe && probe.downloader) || []
@@ -79,7 +79,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         body: JSON.stringify({ id, dir: dirValue }),
       })
       const j = await resp.json().catch(() => null)
-      if (j && j.ok) { setDirValue(j.dir); setDirEditing(false); load() } else { setErr(j && j.error) }
+      if (j && j.ok) { setDirValue(j.dir); setPickerOpen(false); load() } else { setErr(j && j.error) }
     } catch (e) { setErr(e.message) } finally { setDirBusy(false) }
   }
 
@@ -158,8 +158,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   与第 4 步名片的 registration.runtime.checkpoints 由后端同一条链取值。
   const [dirValue, setDirValue] = React.useState('')
   const [dirBusy, setDirBusy] = React.useState(false)
-  // 存放位置：默认只读（原样式 code + 文件夹图标），点图标才进入编辑。
-  const [dirEditing, setDirEditing] = React.useState(false)
+  // 存放位置：只读 code + 文件夹图标（icon 样式，同素材选择器）。
+  //   点图标进入「选择路径模式」：从引擎目录扫出的子目录里挑，不是文本输入。
+  const [dirOptions, setDirOptions] = React.useState([])
+  const [pickerOpen, setPickerOpen] = React.useState(false)
   // 两块来源列表可折叠（标题保留、子项收起），默认展开。
   const [builtinOpen, setBuiltinOpen] = React.useState(true)
   const [scannedOpen, setScannedOpen] = React.useState(true)
@@ -1164,32 +1166,26 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             <div className="plan-kv" style={{ rowGap: 'var(--sp-8)' }}>
               <span className="pk">{t('Stored at', '存放位置')}</span>
               <span className="pv">
-                {dirEditing ? (
-                  <>
-                    <input className="control" style={{ flex: '0 0 220px' }} value={dirValue}
-                      onChange={(e) => setDirValue(e.target.value)}
-                      placeholder={t('weights folder inside the engine', '引擎内的权重目录')} />
-                    <button className="btn btn-sm btn-primary" type="button" disabled={dirBusy || !id}
-                      onClick={saveDir}>{t('Save', '保存')}</button>
-                    <button className="btn btn-sm" type="button" onClick={() => setDirEditing(false)}>
-                      {t('Cancel', '取消')}
-                    </button>
-                  </>
+                <code>{dirValue || `engines/${id}/checkpoints`}</code>
+                <button className="btn btn-sm field-file-pick" type="button"
+                  onClick={() => setPickerOpen((v) => !v)}
+                  title={t('Choose the storage folder', '选择存放目录')}
+                  aria-label={t('Choose the storage folder', '选择存放目录')}
+                  aria-expanded={pickerOpen}>
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3l1.2 1.5H14a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1.5 1.5 0 0 1-1.5-1.5z"
+                      fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {pickerOpen && (dirOptions.length ? (
+                  <select className="control" size={Math.min(6, dirOptions.length)} value={dirValue}
+                    title={t('Sub-folders of the engine folder', '引擎目录下的子目录')}
+                    onChange={(e) => { setDirValue(e.target.value); saveDir() }}>
+                    {dirOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
                 ) : (
-                  <>
-                    <code style={{ cursor: 'pointer' }} onClick={() => setDirEditing(true)}
-                      title={t('Click to change the storage location', '点击修改存放位置')}>
-                      {dirValue || `engines/${id}/checkpoints`}
-                    </code>
-                    <button className="btn btn-sm" type="button" onClick={() => setDirEditing(true)}
-                      title={t('Change the storage location', '修改存放位置')}
-                      aria-label={t('Change the storage location', '修改存放位置')}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
-                      </svg>
-                    </button>
-                  </>
-                )}
+                  <span className="field-hint">{t('No sub-folders in the engine folder yet.', '引擎目录下还没有子目录。')}</span>
+                ))}
                 <span className="field-hint" style={{ marginLeft: 6 }}>
                   {t('inside the engine folder; the card overrides it once declared',
                     '引擎目录内；名片声明后以名片为准')}

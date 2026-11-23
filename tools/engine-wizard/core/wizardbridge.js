@@ -1720,7 +1720,21 @@ function handleDownloadDir (req, res) {
   }
   if (req.method === 'GET') {
     if (!qid) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
-    json(res, 200, { ok: true, dir: weightsDirFor(rootOf(url), qid, readMan(rootOf(url), qid)) || 'checkpoints' })
+    const root = rootOf(url)
+    const dir = path.join(root, 'engines', qid)
+    // 选择路径模式：列出引擎目录下已有的子目录（一级），供点文件夹图标时挑。
+    let options = []
+    try {
+      options = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => `engines/${qid}/${d.name}`)
+        .sort()
+    } catch { /* 目录不在就没有候选 */ }
+    json(res, 200, {
+      ok: true,
+      dir: weightsDirFor(root, qid, readMan(root, qid)) || 'checkpoints',
+      options,
+    })
     return true
   }
   if (req.method !== 'POST') return false
