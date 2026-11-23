@@ -1497,7 +1497,6 @@ function downloadCmdArgv (entry, root, id) {
   // 执行环境统一用平台根：平台根备有 hf / modelscope，所有引擎的下载走同一个环境；
   //   落点由命令参数决定（--local_dir / local_dir）。
   const { platformPythonAbs } = require('./envDetect')
-  const { subdirIsSafe } = require('./download')
   const py = platformPythonAbs(root)
   if (!py || !fs.existsSync(py)) return null
   const win = process.platform === 'win32'
@@ -1509,14 +1508,19 @@ function downloadCmdArgv (entry, root, id) {
     }
     return null
   }
-  // local_dir 用平台分隔符：混斜杠在 Windows 上会被下载库拼出坏路径。
-  //   上游写的目录要过安全校验（引擎目录内的相对路径），但保留它：
-  //   有的引擎认死目录（权重必须在它指定的子目录），统一改目录会找不到权重。
-  //   校验不过（`.` / `..` / 绝对路径）才退回平台归一处。
-  const fallbackDir = path.join('pretrained_models', String(entry.repo).split('/').pop())
-  const safeDir = (d) => subdirIsSafe(d)
-    && String(d).split(/[\\/]/).every((s) => s && s !== '.' && s !== '..')
-  const localDir = safeDir(entry.dir) ? path.join(entry.dir) : fallbackDir
+  // 落点 = 第 3 步「存放位置」显示的那个权重目录（名片 runtime.checkpoints，
+  //   没声明就是 checkpoints）：命令与界面同一个值，不再用上游写的 local_dir
+  //   （那个目录名只在示例里，认死目录的引擎由第 4 步权重位指向）。
+  const { resolveCheckpointsRel } = require('./checkpointsPath')
+  let weightsRel = 'checkpoints'
+  try {
+    const man = JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8'))
+    weightsRel = resolveCheckpointsRel(man, id)
+  } catch { /* 没有名片就用默认权重目录 */ }
+  // 命令在引擎目录内执行，而 resolveCheckpointsRel 给的是项目根相对
+  //   （engines/<id>/checkpoints）：剥掉 engines/<id>/ 前缀才是引擎内相对。
+  const rel = String(weightsRel).replace(/^(?:[\\/]*)?(?:engines[\\/]+[^\\/]+[\\/]+)/, '') || 'checkpoints'
+  const localDir = path.join(rel)
   if (entry.tool === 'modelscope') {
     const bin = pick(['modelscope.exe', 'modelscope']) || py
     return [bin, 'download', '--model', entry.repo, '--local_dir', localDir]
