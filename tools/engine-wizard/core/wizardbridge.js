@@ -1729,14 +1729,19 @@ function handleDownloadDir (req, res) {
     if (err) { json(res, 400, { ok: false, error: err.message }); return }
     const id = String((body && body.id) || '') || qid
     if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return }
-    const rel = safeEngineRel(body && body.dir)
+    let v = String((body && body.dir) || '').trim()
+    // 界面回传的是全局（engines/<id>/...），也接受引擎内相对；统一成引擎内相对再校验。
+    const pfx = `engines/${id}/`
+    if (v.startsWith(pfx)) v = v.slice(pfx.length)
+    const rel = safeEngineRel(v)
     if (!rel) { json(res, 400, { ok: false, error: '存放位置不合法（需引擎目录内的相对路径）' }); return }
     const root = (body && body.root) || rootOf(url)
     const dir = path.join(root, 'engines', id)
     fs.mkdirSync(dir, { recursive: true })
+    // 手动改 → 记全局（项目根相对），与名片 runtime.checkpoints 同一种写法。
     fs.writeFileSync(path.join(dir, 'wizard.json'),
-      JSON.stringify({ downloadDir: rel, updatedAt: new Date().toISOString() }, null, 2))
-    json(res, 200, { ok: true, dir: rel })
+      JSON.stringify({ downloadDir: `engines/${id}/${rel}`, updatedAt: new Date().toISOString() }, null, 2))
+    json(res, 200, { ok: true, dir: `engines/${id}/${rel}` })
   })
   return true
 }
@@ -1845,15 +1850,17 @@ function handleEngineDownload (req, res) {
 // 把当前解析出的权重目录写进快照（第 3 步下载开始/结束各一次）。
 //   只固化「当前值」，不改链条优先级（名片 > 快照 > 默认）。
 function writeDownloadSnapshot (root, id) {
-  const { weightsDirFor } = require('./checkpointsPath')
+  const { weightsDirFor, toEngineRel } = require('./checkpointsPath')
   let man = null
   try { man = JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8')) } catch { /* 无名片 */ }
-  const rel = weightsDirFor(root, id, man) || 'checkpoints'
+  const rel = weightsDirFor(root, id, man) || `engines/${id}/checkpoints`
+  // 自动（下载写盘）→ 记相对（引擎内），与手动改的全局记法区分。
+  const engineRel = toEngineRel(rel, id) || 'checkpoints'
   try {
     const dir = path.join(root, 'engines', id)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(path.join(dir, 'wizard.json'),
-      JSON.stringify({ downloadDir: rel, updatedAt: new Date().toISOString() }, null, 2))
+      JSON.stringify({ downloadDir: engineRel, updatedAt: new Date().toISOString() }, null, 2))
   } catch { /* 快照写不了不影响下载 */ }
 }
 

@@ -79,7 +79,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         body: JSON.stringify({ id, dir: dirValue }),
       })
       const j = await resp.json().catch(() => null)
-      if (j && j.ok) { setDirValue(j.dir); load() } else { setErr(j && j.error) }
+      if (j && j.ok) { setDirValue(j.dir); setDirEditing(false); load() } else { setErr(j && j.error) }
     } catch (e) { setErr(e.message) } finally { setDirBusy(false) }
   }
 
@@ -158,6 +158,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   //   与第 4 步名片的 registration.runtime.checkpoints 由后端同一条链取值。
   const [dirValue, setDirValue] = React.useState('')
   const [dirBusy, setDirBusy] = React.useState(false)
+  // 存放位置：默认只读（原样式 code + 文件夹图标），点图标才进入编辑。
+  const [dirEditing, setDirEditing] = React.useState(false)
   // 两块来源列表可折叠（标题保留、子项收起），默认展开。
   const [builtinOpen, setBuiltinOpen] = React.useState(true)
   const [scannedOpen, setScannedOpen] = React.useState(true)
@@ -1162,11 +1164,32 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             <div className="plan-kv" style={{ rowGap: 'var(--sp-8)' }}>
               <span className="pk">{t('Stored at', '存放位置')}</span>
               <span className="pv">
-                <input className="control" style={{ flex: '0 0 220px' }} value={dirValue}
-                  onChange={(e) => setDirValue(e.target.value)}
-                  placeholder={t('weights folder inside the engine', '引擎内的权重目录')} />
-                <button className="btn btn-sm" type="button" disabled={dirBusy || !id}
-                  onClick={saveDir}>{t('Save', '保存')}</button>
+                {dirEditing ? (
+                  <>
+                    <input className="control" style={{ flex: '0 0 220px' }} value={dirValue}
+                      onChange={(e) => setDirValue(e.target.value)}
+                      placeholder={t('weights folder inside the engine', '引擎内的权重目录')} />
+                    <button className="btn btn-sm btn-primary" type="button" disabled={dirBusy || !id}
+                      onClick={saveDir}>{t('Save', '保存')}</button>
+                    <button className="btn btn-sm" type="button" onClick={() => setDirEditing(false)}>
+                      {t('Cancel', '取消')}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <code style={{ cursor: 'pointer' }} onClick={() => setDirEditing(true)}
+                      title={t('Click to change the storage location', '点击修改存放位置')}>
+                      {dirValue || `engines/${id}/checkpoints`}
+                    </code>
+                    <button className="btn btn-sm" type="button" onClick={() => setDirEditing(true)}
+                      title={t('Change the storage location', '修改存放位置')}
+                      aria-label={t('Change the storage location', '修改存放位置')}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
+                      </svg>
+                    </button>
+                  </>
+                )}
                 <span className="field-hint" style={{ marginLeft: 6 }}>
                   {t('inside the engine folder; the card overrides it once declared',
                     '引擎目录内；名片声明后以名片为准')}

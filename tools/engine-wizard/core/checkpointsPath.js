@@ -62,14 +62,20 @@ function safeEngineRel (value) {
 }
 
 /**
- * 第 3 步的存放位置快照：engines/<id>/wizard.json 的 downloadDir（引擎内相对）。
+ * 第 3 步的存放位置快照：engines/<id>/wizard.json 的 downloadDir。
+ * 两种记法，读取时统一还原成「引擎内相对」：
+ *   手动改（界面）→ 记全局（项目根相对 engines/<id>/checkpoints）
+ *   自动（下载开始/结束写盘）→ 记相对（checkpoints）
  * 坏文件 / 非法值一律视为未设置（返回 null），不抛错。
  */
 function readDownloadSnapshot (root, engineId) {
   if (!checkpointsRelPath(engineId)) return null
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(root, 'engines', engineId, 'wizard.json'), 'utf8'))
-    return safeEngineRel(raw && raw.downloadDir)
+    const prefix = `engines/${engineId}/`
+    const v = raw && raw.downloadDir
+    const rel = typeof v === 'string' && v.startsWith(prefix) ? v.slice(prefix.length) : v
+    return safeEngineRel(rel)
   } catch {
     return null
   }
