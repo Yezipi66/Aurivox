@@ -397,17 +397,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       byWhere.get(k).push(e)
     }
     return groups.map(([where, items]) => (
-      <div key={prefix + (where || 'other')} style={boxed
-        ? { ...BOX, marginTop: 'var(--sp-8)' }
-        : { marginTop: 'var(--sp-8)', paddingTop: 'var(--sp-8)', borderTop: '1px solid var(--border)' }}>
-        {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
-        {items.map((e, i) => {
-          const busy = entryBusy === e.key
-          const expanded = expandedCmds.has(e.key)
-          return (
-            <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
-              marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
-              borderTop: i ? '1px solid var(--border)' : 'none' }}>
+      <div key={prefix + (where || 'other')} style={{ marginTop: 'var(--sp-8)', paddingTop: 'var(--sp-8)', borderTop: '1px solid var(--border)' }}>
+      {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
+      {items.map((e, i) => {
+      const busy = entryBusy === e.key
+      const expanded = expandedCmds.has(e.key)
+      return (
+      <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
+        padding: 'var(--sp-8) 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
               <pre className="rc-cmd-body" style={{
                 flex: 1, margin: 0, minWidth: 180,
                 whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
@@ -990,7 +987,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {builtinOpen && (
-                      <div style={{ ...BOX, marginTop: 6 }}>{renderEntryGroups(builtinEntries, false, 'b:')}</div>
+                      <div style={{ ...BOX, width: '100%', boxSizing: 'border-box', marginTop: 6 }}>{renderEntryGroups(builtinEntries, false, 'b:')}</div>
                     )}
                   </div>
                 )}
@@ -1043,8 +1040,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                         {runtimeRepos.map((r, i) => (
                           <div key={`${r.tool || 'hf'}|${r.repo}`}
                             style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                              marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
-                              borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                              padding: 'var(--sp-8) 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
                             <span className="badge badge-neutral">
                               {r.tool === 'modelscope' ? 'ModelScope' : 'HuggingFace'}
                             </span>
