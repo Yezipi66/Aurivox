@@ -383,7 +383,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const scannedEntries = engineEntries.filter((e) => e.kind === 'cmd')
 
   // 一组条目按来源文件分组：同一个文件里提出来的命令放一起，不逐条重复「来自 X」。
-  const renderEntryGroups = (list) => {
+  //   boxed：独立成块时套 BOX；已经在外层 BOX 里时用细线分组，避免框套框。
+  const renderEntryGroups = (list, boxed = true, prefix = '') => {
     const groups = []
     const byWhere = new Map()
     for (const e of list) {
@@ -392,7 +393,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       byWhere.get(k).push(e)
     }
     return groups.map(([where, items]) => (
-      <div key={where || 'other'} style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+      <div key={prefix + (where || 'other')} style={boxed
+        ? { ...BOX, marginTop: 'var(--sp-8)' }
+        : { marginTop: 'var(--sp-8)', paddingTop: 'var(--sp-8)', borderTop: '1px solid var(--border)' }}>
         {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
         {items.map((e, i) => {
           const busy = entryBusy === e.key
@@ -967,15 +970,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 {builtinEntries.length > 0 && (
-                  <div className="field-hint" style={{ marginTop: 0 }}>
-                    {t('Weights the engine declares: a bundled download command can be run directly.',
-                      '引擎声明的权重来源：自带下载命令可以直接运行。')}
+                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+                      {t('Weights the engine declares: a bundled download command can be run directly.',
+                        '引擎声明的权重来源：自带下载命令可以直接运行。')}
+                    </div>
+                    {renderEntryGroups(builtinEntries, false, 'b:')}
                   </div>
                 )}
                 {scannedEntries.length > 0 && (
-                  <div className="field-hint" style={{ marginTop: 'var(--sp-8)' }}>
-                    {t('Download commands declared by the engine, rewritten for this machine (platform environment).',
-                      '引擎声明的下载命令；已按本机环境转写成可执行命令。')}
+                  <div style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+                    <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+                      {t('Download commands declared by the engine, rewritten for this machine (platform environment).',
+                        '引擎声明的下载命令；已按本机环境转写成可执行命令。')}
+                    </div>
+                    {renderEntryGroups(scannedEntries, false, 's:')}
                   </div>
                 )}
                 {engineProvided === 0 && (
