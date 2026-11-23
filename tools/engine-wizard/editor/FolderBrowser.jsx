@@ -12,9 +12,9 @@ export default function FolderBrowser ({ open, onChoose, onClose }) {
   const load = async (p) => {
     setBusy(true); setErr(null)
     try {
-      const r = await fetch(`/api/fs/browse?path=${encodeURIComponent(p || '')}`)
+      const r = await fetch(`/wizard/fs/browse?path=${encodeURIComponent(p || '')}`)
       const j = await r.json().catch(() => null)
-      if (j && j.ok) setData(j.data || j)
+      if (j && j.ok) { setData(j.data || j); if (j.error) setErr(j.error) }
       else setErr((j && j.error) || `HTTP ${r.status}`)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }

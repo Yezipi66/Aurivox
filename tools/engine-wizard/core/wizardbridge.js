@@ -1888,6 +1888,50 @@ function writeDownloadSnapshot (root, id) {
   } catch { /* 快照写不了不影响下载 */ }
 }
 
+// GET /wizard/fs/browse?path=  应用内文件夹浏览（向导自包含，不依赖主服务）
+//   path 空 → 列盘符（Windows）或根目录；否则列该目录的子目录。
+function handleFsBrowse (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/fs/browse')) return false
+  const url = new URL(req.url, 'http://x')
+  const p = url.searchParams.get('path') || ''
+  const win = process.platform === 'win32'
+  if (!p) {
+    // 盘符列表
+    const drives = []
+    if (win) {
+      for (let i = 65; i <= 90; i++) {
+        const letter = String.fromCharCode(i)
+        const drive = `${letter}:\\`
+        try { fs.accessSync(drive); drives.push({ name: drive, path: drive }) } catch { /* 不存在 */ }
+      }
+    } else {
+      drives.push({ name: '/', path: '/' })
+    }
+    json(res, 200, { ok: true, isDriveList: true, path: '', parent: null, drives, dirs: [] })
+    return true
+  }
+  const abs = path.resolve(p)
+  const parent = path.dirname(abs)
+  let dirs = []
+  let error = null
+  try {
+    dirs = fs.readdirSync(abs, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => ({ name: d.name, path: path.join(abs, d.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch (e) { error = e.code || e.message }
+  json(res, 200, {
+    ok: true,
+    isDriveList: false,
+    path: abs,
+    parent: parent && parent !== abs ? parent : null,
+    dirs,
+    error,
+  })
+  return true
+}
+
 // POST /wizard/pick-dir  打开系统文件夹对话框（本地服务才能弹）
 //   浏览器给不了真实路径，所以由本地服务代弹：
 //   Windows → FolderBrowserDialog；macOS → choose folder；Linux → zenity。
@@ -3541,7 +3585,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadAttach, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
-  handleDownloadEntries, handleDownloadDir, handlePickDir, handleEngineDownload,
+  handleDownloadEntries, handleDownloadDir, handleFsBrowse, handlePickDir, handleEngineDownload,
   scanDocDownloadCommands,
   handleVerifyChecks, handleVerifyAudioStream, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
