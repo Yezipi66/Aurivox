@@ -1365,6 +1365,37 @@ function runtimeRepoRows (dir, id = '', limit = 8) {
   return [...out.filter(named), ...out.filter((r) => !named(r))].slice(0, limit)
 }
 
+// 下载脚本（README / .py）里点名的仓库：让「只有魔搭」的仓库也能走平台下载器
+//   （列文件、直接下），绕开 modelscope 命令在 Windows 上的缓存目录与符号链接。
+function scriptRepoRows (dir) {
+  const out = []
+  const seen = new Set()
+  for (const c of scanScriptDownloadCommands(dir)) {
+    if (!c || !c.repo) continue
+    const tool = c.source === 'hf' ? 'hf' : 'modelscope'
+    const key = tool + '|' + c.repo
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ tool, repo: c.repo, file: c.where, line: null })
+  }
+  return out
+}
+
+function mergeRepoRows (...lists) {
+  const out = []
+  const seen = new Set()
+  for (const list of lists) {
+    for (const r of list || []) {
+      if (!r || !r.repo) continue
+      const key = String(r.tool) + '|' + r.repo
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(r)
+    }
+  }
+  return out
+}
+
 /**
  * 上游把「装完依赖后还要敲的命令」写在文档里（常见位置 docs/install.md），
  * 例如 MeloTTS 的 `python -m unidic download`。这类命令不在依赖清单里，平台
@@ -1644,7 +1675,9 @@ function handleDownloadEntries (req, res) {
   const root = url.searchParams.get('root') || projectRoot() || ''
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   const dir = path.join(root, 'engines', id)
-  const repos = fs.existsSync(dir) ? runtimeRepoRows(dir, id) : []
+  const repos = fs.existsSync(dir)
+    ? mergeRepoRows(runtimeRepoRows(dir, id), scriptRepoRows(dir))
+    : []
   const inList = new Set(repos.map((r) => r.repo))
   json(res, 200, {
     ok: true,
