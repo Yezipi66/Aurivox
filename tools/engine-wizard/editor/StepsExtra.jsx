@@ -989,7 +989,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {builtinOpen && (
-                      <div style={{ marginTop: 6 }}>{renderEntryGroups(builtinEntries, false, 'b:')}</div>
+                      <div style={{ marginTop: 6 }}>{renderEntryGroups(builtinEntries, true, 'b:')}</div>
                     )}
                   </div>
                 )}
@@ -1010,7 +1010,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       </span>
                     </div>
                     {scannedOpen && (
-                      <div style={{ marginTop: 6 }}>{renderEntryGroups(scannedEntries, false, 's:')}</div>
+                      <div style={{ marginTop: 6 }}>{renderEntryGroups(scannedEntries, true, 's:')}</div>
                     )}
                   </div>
                 )}
