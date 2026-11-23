@@ -907,8 +907,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('What the engine itself declares: a download command it ships can be run here; the repos its source names are listed below and already in the download list.',
-                    '引擎自己声明的权重来源：自带下载命令可以直接运行；源码里写明的仓库列在下面，并已加入下载清单。')}
+                  {t('Rewritten by the platform for this machine, ready to run; the repos the source names are in the list below.',
+                    '以下命令由平台按本机环境转写，可直接运行；源码里写明的仓库在下方清单里。')}
                 </div>
                 {engineProvided === 0 && (
                   <div className="msg msg-info" style={{ marginTop: 6 }}>
