@@ -1038,16 +1038,23 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     </div>
                     {reposOpen && (
                       <div style={{ ...BOX, marginTop: 6 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px' }}>
-                          {runtimeRepos.map((r) => (
-                            <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
+                        {runtimeRepos.map((r, i) => (
+                          <div key={`${r.tool || 'hf'}|${r.repo}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                              marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
+                              borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                            <span className="badge badge-neutral">
+                              {r.tool === 'modelscope' ? 'ModelScope' : 'HuggingFace'}
+                            </span>
+                            <a href={repoPageUrl(r.tool, r.repo)} target="_blank" rel="noreferrer">
                               <code>{r.repo}</code>
-                              <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
-                                {r.file}:{r.line}
-                              </span>
-                            </React.Fragment>
-                          ))}
-                        </div>
+                            </a>
+                            <span className="field-hint" style={{ margin: 0 }}>{r.file}:{r.line}</span>
+                            <span className="field-hint" style={{ margin: 0 }}>
+                              {t('in the download list', '已加入下载清单')}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
