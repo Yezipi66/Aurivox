@@ -12,6 +12,7 @@ import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdir
 import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import Select from '../../../web/src/components/common/Select'
 import { BOX } from './boxStyle.js'
+import FolderBrowser from './FolderBrowser.jsx'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -83,17 +84,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       })
       const j = await resp.json().catch(() => null)
       if (j && j.ok) { setDirValue(j.dir); setPickerOpen(false); load() } else { setErr(j && j.error) }
-    } catch (e) { setErr(e.message) } finally { setDirBusy(false) }
-  }
-
-  // 打开系统文件夹对话框（后端代弹），选中后作为存放位置保存。
-  const pickDir = async () => {
-    if (!id) return
-    setDirBusy(true)
-    try {
-      const resp = await fetch('/wizard/pick-dir', { method: 'POST' })
-      const j = await resp.json().catch(() => null)
-      if (j && j.ok && j.path) { setDirValue(j.path); await saveDir(j.path) }
     } catch (e) { setErr(e.message) } finally { setDirBusy(false) }
   }
 
@@ -1182,22 +1172,19 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
               <span className="pv">
                 <code>{dirValue || `engines/${id}/checkpoints`}</code>
                 <span role="button" tabIndex={0}
-                  onClick={pickDir}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickDir() } }}
-                  title={t('Open the system folder picker', '打开系统文件夹选择')}
-                  aria-label={t('Open the system folder picker', '打开系统文件夹选择')}
+                  onClick={() => setPickerOpen(true)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPickerOpen(true) } }}
+                  title={t('Choose the storage folder', '选择存放目录')}
+                  aria-label={t('Choose the storage folder', '选择存放目录')}
                   style={{ cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
                   </svg>
                 </span>
-                {pickerOpen && dirOptions.length > 0 && (
-                  <select className="control" size={Math.min(6, dirOptions.length)} value={dirValue}
-                    title={t('Sub-folders of the engine folder', '引擎目录下的子目录')}
-                    onChange={(e) => { setDirValue(e.target.value); saveDir() }}>
-                    {dirOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                {pickerOpen && (
+                  <FolderBrowser open onClose={() => setPickerOpen(false)}
+                    onChoose={(p) => { setPickerOpen(false); saveDir(p) }} />
                 )}
                 <span className="field-hint" style={{ marginLeft: 6 }}>
                   {t('inside the engine folder; the card overrides it once declared',
