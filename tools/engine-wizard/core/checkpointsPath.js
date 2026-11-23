@@ -50,4 +50,56 @@ function resolveCheckpointsRel (manifest, engineId) {
   return checkpointsRelPath(engineId)
 }
 
-module.exports = { checkpointsRelPath, checkpointsAbsPath, resolveCheckpointsRel }
+const fs = require('node:fs')
+
+/** 归一成平台分隔符的引擎内相对路径；非法（空/绝对/含 . 或 ..）返回 null。 */
+function safeEngineRel (value) {
+  const s = String(value == null ? '' : value).trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!s || path.isAbsolute(s)) return null
+  const parts = s.split('/')
+  if (parts.some((p) => !p || p === '.' || p === '..')) return null
+  return parts.join('/')
+}
+
+/**
+ * 第 3 步的存放位置快照：engines/<id>/wizard.json 的 downloadDir（引擎内相对）。
+ * 坏文件 / 非法值一律视为未设置（返回 null），不抛错。
+ */
+function readDownloadSnapshot (root, engineId) {
+  if (!checkpointsRelPath(engineId)) return null
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(root, 'engines', engineId, 'wizard.json'), 'utf8'))
+    return safeEngineRel(raw && raw.downloadDir)
+  } catch {
+    return null
+  }
+}
+
+/** 把项目根相对的名片路径转成引擎内相对；不在 engines/<id>/ 下就原样返回。 */
+function toEngineRel (value, engineId) {
+  const s = String(value == null ? '' : value).trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const prefix = `engines/${engineId}/`
+  return s.startsWith(prefix) ? s.slice(prefix.length) : s
+}
+
+/**
+ * 权重目录（**项目根相对**，与名片同语义）。一条链，唯一答案：
+ *   名片 registration.runtime.checkpoints（第 4 步声明，最权威）
+ *   → 第 3 步快照 wizard.json.downloadDir（引擎内相对，拼回 engines/<id>/）
+ *   → 默认 engines/<id>/checkpoints
+ * 顺序无关：先 4 后 3、下载中切换、跳过第 3 步都收敛到同一个值。
+ * 路径一律不接受绝对路径与 ..：名片是外部输入，不能指到项目外。
+ */
+function weightsDirFor (root, engineId, manifest) {
+  const flat = fromV011(manifest)
+  const declared = flat && flat.runtime && flat.runtime.checkpoints
+  if (typeof declared === 'string') {
+    const rel = declared.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (rel && !path.isAbsolute(rel) && !rel.split('/').includes('..')) return rel
+  }
+  const snap = readDownloadSnapshot(root, engineId)
+  if (snap) return `engines/${engineId}/${snap}`
+  return `engines/${engineId}/checkpoints`
+}
+
+module.exports = { checkpointsRelPath, checkpointsAbsPath, resolveCheckpointsRel, weightsDirFor, readDownloadSnapshot, safeEngineRel, toEngineRel }

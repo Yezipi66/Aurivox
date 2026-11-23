@@ -1508,19 +1508,16 @@ function downloadCmdArgv (entry, root, id) {
     }
     return null
   }
-  // 落点 = 第 3 步「存放位置」显示的那个权重目录（名片 runtime.checkpoints，
-  //   没声明就是 checkpoints）：命令与界面同一个值，不再用上游写的 local_dir
-  //   （那个目录名只在示例里，认死目录的引擎由第 4 步权重位指向）。
-  const { resolveCheckpointsRel } = require('./checkpointsPath')
-  let weightsRel = 'checkpoints'
-  try {
-    const man = JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8'))
-    weightsRel = resolveCheckpointsRel(man, id)
-  } catch { /* 没有名片就用默认权重目录 */ }
-  // 命令在引擎目录内执行，而 resolveCheckpointsRel 给的是项目根相对
-  //   （engines/<id>/checkpoints）：剥掉 engines/<id>/ 前缀才是引擎内相对。
-  const rel = String(weightsRel).replace(/^(?:[\\/]*)?(?:engines[\\/]+[^\\/]+[\\/]+)/, '') || 'checkpoints'
-  const localDir = path.join(rel)
+  // 落点 = 权重目录解析值（名片 > 第 3 步快照 > 默认）：命令与界面、第 4 步声明
+  //   同一个值，不再用上游写的 local_dir（那个目录名只在示例里）。
+  const { weightsDirFor, toEngineRel } = require('./checkpointsPath')
+  let man = null
+  try { man = JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8')) } catch { /* 无名片 */ }
+  const rel = weightsDirFor(root, id, man) || path.join('engines', id, 'checkpoints')
+  const engineRel = toEngineRel(rel, id)
+  // 名片的落点可能不在引擎目录下（如 models/tts/<id>）：那种情况命令用绝对路径，
+  //   写成相对引擎目录会落到别处。
+  const localDir = engineRel !== rel ? engineRel : path.resolve(root, rel)
   if (entry.tool === 'modelscope') {
     const bin = pick(['modelscope.exe', 'modelscope']) || py
     return [bin, 'download', '--model', entry.repo, '--local_dir', localDir]
@@ -1657,8 +1654,8 @@ function buildEngineDownloadEntries (root, id) {
 }
 
 function expandEngineArgv (argv, root, id, dir, manifest) {
-  const { resolveCheckpointsRel } = require('./checkpointsPath')
-  const rel = resolveCheckpointsRel(manifest, id) || path.join('engines', id, 'checkpoints')
+  const { weightsDirFor } = require('./checkpointsPath')
+  const rel = weightsDirFor(root, id, manifest) || path.join('engines', id, 'checkpoints')
   const venvPython = process.platform === 'win32'
     ? path.join(dir, '.venv', 'Scripts', 'python.exe')
     : path.join(dir, '.venv', 'bin', 'python')
@@ -1702,6 +1699,42 @@ function handleDownloadEntries (req, res) {
         && !RUNTIME_AUX_FILE_RE.test(String(h.file))
         && !RUNTIME_REPO_NOT_A_REPO_RE.test(String(h.repo || '').split('/').pop()))
       : [],
+  })
+  return true
+}
+
+// GET /wizard/download-dir?id=        第 3 步「存放位置」：解析值（引擎内相对）
+// POST /wizard/download-dir {id, dir} 写第 3 步快照 engines/<id>/wizard.json
+//   快照与第 4 步的 registration.runtime.checkpoints 是同一件事的两种状态，
+//   由 weightsDirFor 一条链取值（名片 > 快照 > 默认），顺序无关。
+function handleDownloadDir (req, res) {
+  if (!req.url || !req.url.startsWith('/wizard/download-dir')) return false
+  const url = new URL(req.url, 'http://x')
+  const qid = url.searchParams.get('id') || ''
+  const { weightsDirFor, safeEngineRel } = require('./checkpointsPath')
+  const rootOf = (u) => u.searchParams.get('root') || projectRoot() || ''
+  const readMan = (root, id) => {
+    try { return JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8')) } catch { return null }
+  }
+  if (req.method === 'GET') {
+    if (!qid) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+    json(res, 200, { ok: true, dir: weightsDirFor(rootOf(url), qid, readMan(rootOf(url), qid)) || 'checkpoints' })
+    return true
+  }
+  if (req.method !== 'POST') return false
+  // 中间件只传 (req, res)：POST 的 body 自己读。
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, error: err.message }); return }
+    const id = String((body && body.id) || '') || qid
+    if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return }
+    const rel = safeEngineRel(body && body.dir)
+    if (!rel) { json(res, 400, { ok: false, error: '存放位置不合法（需引擎目录内的相对路径）' }); return }
+    const root = (body && body.root) || rootOf(url)
+    const dir = path.join(root, 'engines', id)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'wizard.json'),
+      JSON.stringify({ downloadDir: rel, updatedAt: new Date().toISOString() }, null, 2))
+    json(res, 200, { ok: true, dir: rel })
   })
   return true
 }
@@ -1767,6 +1800,7 @@ function handleEngineDownload (req, res) {
         cwd: dir, windowsHide: true, shell: false,
         env: dlEnv,
       })
+      writeDownloadSnapshot(root, id)
     } catch (e) {
       send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
       res.end()
@@ -1777,6 +1811,7 @@ function handleEngineDownload (req, res) {
       if (finished) return
       finished = true
       clearTimeout(timer)
+      writeDownloadSnapshot(root, id)
       send('done', { ok, ...payload })
       res.end()
     }
@@ -1803,6 +1838,21 @@ function handleEngineDownload (req, res) {
     child.on('close', (code) => finish(code === 0, { status: code, code: code === 0 ? 'OK' : 'EXIT_' + code }))
   })
   return true
+}
+
+// 把当前解析出的权重目录写进快照（第 3 步下载开始/结束各一次）。
+//   只固化「当前值」，不改链条优先级（名片 > 快照 > 默认）。
+function writeDownloadSnapshot (root, id) {
+  const { weightsDirFor } = require('./checkpointsPath')
+  let man = null
+  try { man = JSON.parse(fs.readFileSync(path.join(root, 'engines', id, 'manifest.json'), 'utf8')) } catch { /* 无名片 */ }
+  const rel = weightsDirFor(root, id, man) || 'checkpoints'
+  try {
+    const dir = path.join(root, 'engines', id)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'wizard.json'),
+      JSON.stringify({ downloadDir: rel, updatedAt: new Date().toISOString() }, null, 2))
+  } catch { /* 快照写不了不影响下载 */ }
 }
 
 // POST /wizard/run-script {id, file, args}  第 3 步：跑上游自带的下载脚本
@@ -3335,8 +3385,8 @@ function handleInstallState (req, res) {
  * 只删项目根之内的路径：名片是外部输入，`..` 与绝对路径都不能让它指到别处。
  */
 function removeWeightsDir (root, id, dir) {
-  const { resolveCheckpointsRel } = require('./checkpointsPath')
-  const rel = resolveCheckpointsRel(readLocalManifest(dir), id)
+  const { weightsDirFor } = require('./checkpointsPath')
+  const rel = weightsDirFor(root, id, readLocalManifest(dir)) || 'checkpoints'
   const abs = path.resolve(root, rel)
   const base = path.resolve(root)
   if (abs !== base && !abs.startsWith(base + path.sep)) {
@@ -3433,7 +3483,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadAttach, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
-  handleDownloadEntries, handleEngineDownload,
+  handleDownloadEntries, handleDownloadDir, handleEngineDownload,
   scanDocDownloadCommands,
   handleVerifyChecks, handleVerifyAudioStream, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,

@@ -56,6 +56,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         setRuntimeHints(Array.isArray(j.runtime_hints) ? j.runtime_hints : [])
         setRuntimeRepos(Array.isArray(j.repos) ? j.repos : [])
       }
+      // 存放位置：后端按「名片 > 快照 > 默认」解析后回一个值，界面不自己算。
+      const dr = await fetch(`/wizard/download-dir?id=${encodeURIComponent(id)}`)
+      const dj = await dr.json().catch(() => null)
+      if (dj && dj.ok) setDirValue(dj.dir)
       // 上游文档里的下载命令来自第 1 步的探测缓存，这里原样铺底（不重新探测）。
       const cmds = (probe && probe.downloader_cmds) || []
       const scripts = (probe && probe.downloader) || []
@@ -63,6 +67,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       setManifest(null)
       setListErrors({})
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  // 保存存放位置：写快照，然后重算清单（命令的 local_dir 跟着变）。
+  const saveDir = async () => {
+    if (!id) return
+    setDirBusy(true)
+    try {
+      const resp = await fetch('/wizard/download-dir', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, dir: dirValue }),
+      })
+      const j = await resp.json().catch(() => null)
+      if (j && j.ok) { setDirValue(j.dir); load() } else { setErr(j && j.error) }
+    } catch (e) { setErr(e.message) } finally { setDirBusy(false) }
   }
 
   // 从头重装：清记录 + 删权重目录。端点回报删了没有与路径，界面据此说结果。
@@ -136,6 +154,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   // HF 访问令牌：只知道配置了没有（null = 还没问过后端），令牌本身不进前端状态。
   //   tokenDialog 不为 null 时显示弹窗：{ info: 后端的 GATED 结果或 null, retry: 保存后要重做的事 }。
   const [hfConfigured, setHfConfigured] = React.useState(null)
+  // 第 3 步「存放位置」：可改，写快照 engines/<id>/wizard.json。
+  //   与第 4 步名片的 registration.runtime.checkpoints 由后端同一条链取值。
+  const [dirValue, setDirValue] = React.useState('')
+  const [dirBusy, setDirBusy] = React.useState(false)
   const [tokenDialog, setTokenDialog] = React.useState(null)
   React.useEffect(() => {
     fetch('/wizard/hf-token')
@@ -1082,10 +1104,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             <div className="plan-kv" style={{ rowGap: 'var(--sp-8)' }}>
               <span className="pk">{t('Stored at', '存放位置')}</span>
               <span className="pv">
-                <code>engines/{id}/checkpoints/</code>
+                <input className="control" style={{ flex: '0 0 220px' }} value={dirValue}
+                  onChange={(e) => setDirValue(e.target.value)}
+                  placeholder={t('weights folder inside the engine', '引擎内的权重目录')} />
+                <button className="btn btn-sm" type="button" disabled={dirBusy || !id}
+                  onClick={saveDir}>{t('Save', '保存')}</button>
                 <span className="field-hint" style={{ marginLeft: 6 }}>
-                  {t('or the runtime.checkpoints the manifest declares',
-                    '（名片声明了 runtime.checkpoints 时按名片）')}
+                  {t('inside the engine folder; the card overrides it once declared',
+                    '引擎目录内；名片声明后以名片为准')}
                 </span>
               </span>
               {rows.some((f) => f.tool === 'hf') && (

@@ -265,7 +265,11 @@ function installState (root, id, deps = {}) {
   // 权重落点以名片为准：旧名片可能写在 models/tts/<id>，与统一落点不同。
   //   两套口径（这一步按统一落点、第 5 步按名片）会给出相反结论。
   const manifest = hasClone ? readManifest(dir) : null
-  const weightRel = resolveCheckpointsRel(manifest, id)
+  // 权重落点：名片 > 第 3 步快照 > 默认（引擎内相对），再拼回项目根相对。
+  //   写盘、第 4 步声明、第 5 步判断三处同源，改一处不漏两处。
+  const { weightsDirFor } = require('./checkpointsPath')
+  const weightRel = weightsDirFor(root, id, manifest)
+    || ['engines', String(id || ''), 'checkpoints'].join('/')
   const failure = hasClone ? envFailure(root, id) : null
   const running = hasClone ? envRunning(root, id) : null
   const venvSpawns = hasClone ? !!probe(id) : false
